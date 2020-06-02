@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "ron_loader"
+		},
+		{
+			"path": "kmeans"
+		},
+		{
+			"path": "lod_creator"
+		},
+		{
+			"path": "lod_preview"
+		}
+	],
+	"settings": {}
+}

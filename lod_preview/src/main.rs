@@ -1,85 +1,144 @@
-use nalgebra_glm::*;
+mod application;
 
-fn sphere_sreen_space_area(projection: Mat4, dimensions: Vec2, center: Vec3, radius: f32) -> f32 {
-    let d2 = dot(&center, &center);
-    let a = (d2 - radius * radius).sqrt();
+use winit::{
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::Window,
+};
+use wgpu::*;
 
-    // view-aligned "right" vector (right angle to the view plane from the center of the sphere. Since  "up" is always (0,n,0), replaced cross product with vec3(-c.z, 0, c.x)
-    let right = (radius / a) * vec3(-center.z, 0.0, center.x);
-    let up = vec3(0.0, radius, 0.0);
+async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
+    let size = window.inner_size();
+    let instance = Instance::new();
+    let surface = unsafe { instance.create_surface(&window) };
+    let adapter = instance
+        .request_adapter(
+            &RequestAdapterOptions {
+                power_preference: PowerPreference::Power,
+                compatible_surface: Some(&surface),
+            },
+            BackendBit::PRIMARY,
+        )
+        .await
+        .unwrap();
 
-    let projected_right = projection * vec4(right.x, right.y, right.z, 0.0);
-    let projected_up = projection * vec4(up.x, up.y, up.z, 0.0);
+    let (device, queue) = adapter
+        .request_device(
+            &DeviceDescriptor {
+                extensions: Extensions {
+                    anisotropic_filtering: false,
+                },
+                limits: Limits::default(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
 
-    let projected_center = projection * vec4(center.x, center.y, center.z, 1.0);
+    // Initialize the graphics scene
+    let mut application = application::Application::new(size.width, size.height, &surface);
 
-    let mut north = projected_center + projected_up;
-    let mut east = projected_center + projected_right;
-    let mut south = projected_center - projected_up;
-    let mut west = projected_center - projected_right;
+    // Initialize swapchain
+    let mut sc_desc = SwapChainDescriptor {
+        usage: TextureUsage::OUTPUT_ATTACHMENT,
+        format: swapchain_format,
+        width: size.width,
+        height: size.height,
+        present_mode: PresentMode::Mailbox,
+    };
+    let mut swap_chain = application.device().create_swap_chain(&surface, &sc_desc);
 
-    north /= north.w;
-    east /= east.w;
-    west /= west.w;
-    south /= south.w;
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+        match event {
+            // Process all the events
+            event::Event::MainEventsCleared => {
+                window.request_redraw();
+            }
+            // Handle resize event as a special case
+            event::Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                sc_desc.width = size.width;
+                sc_desc.height = size.height;
 
-    let north = vec2(north.x, north.y);
-    let east = vec2(east.x, east.y);
-    let west = vec2(west.x, west.y);
-    let south = vec2(south.x, south.y);
+                swap_chain = application.device().create_swap_chain(&surface, &sc_desc);
 
-    let box_min = min2(&min2(&min2(&east, &west), &north), &south);
-    let box_max = max2(&max2(&max2(&east, &west), &north), &south);
+                application.resize(sc_desc.width, sc_desc.height);
+            }
+            event::Event::RedrawRequested(_) => {
+                let frame = swap_chain.get_next_texture().unwrap();
 
-    let box_min = box_min * 0.5 + vec2(0.5, 0.5);
-    let box_max = box_max * 0.5 + vec2(0.5, 0.5);
+                application.render(&frame.view);
+            }
+            // Gather window + device events
+            event::Event::WindowEvent { event, .. } => {
+                // match event {
+                //     WindowEvent::KeyboardInput {
+                //         input:
+                //             event::KeyboardInput {
+                //                 virtual_keycode: Some(event::VirtualKeyCode::Escape),
+                //                 state: event::ElementState::Pressed,
+                //                 ..
+                //             },
+                //         ..
+                //     }
+                //     | WindowEvent::CloseRequested => {
+                //         *control_flow = ControlFlow::Exit;
+                //     }
+                //     WindowEvent::KeyboardInput {
+                //         input:
+                //             event::KeyboardInput {
+                //                 virtual_keycode: Some(event::VirtualKeyCode::U),
+                //                 state: event::ElementState::Pressed,
+                //                 ..
+                //             },
+                //         ..
+                //     } => {
+                //         ui_on = !ui_on;
+                //     }
+                //     _ => {}
+                // };
 
-    let area = box_max - box_min;
-    let area = area.component_mul(&dimensions);
-    let area = area.x * area.y;
+                // let event = event.to_static().unwrap();
 
-    area
+                // // Send window event to the graphics scene
+                // application.update(ApplicationEvent::from_winit_window_event(&event));
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+            _ => {}
+        }
+    });
 }
 
 fn main() {
-    let width = 3840.0;
-    let height = 2060.0;
-    let aspect = width / height;
+    let event_loop = EventLoop::new();
+    let window = winit::window::Window::new(&event_loop).unwrap();
 
-    let projection = infinite_perspective_rh_no(aspect, 0.785398163, 0.1);
-    let radius = 0.5;
-
-    for z in ((radius * 2.0) as u32..1000).step_by(1) {
-        let view = look_at(
-            &vec3(0.0, 0.0, z as f32),
-            &vec3(0.0, 0.0, 0.0),
-            &vec3(0.0, 1.0, 0.0),
-        );
-        let position = view * vec4(0.0, 0.0, 0.0, 1.0);
-        let area = sphere_sreen_space_area(projection, vec2(width, height), position.xyz(), radius);
-
-        println!("{:?}", area);
-
-        if area < 64.0 {
-            println!("Distance: {}", z);
-            break;
-        }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        env_logger::init();
+        // Temporarily avoid srgb formats for the swapchain on the web
+        futures::executor::block_on(run(event_loop, window, TextureFormat::Bgra8UnormSrgb));
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+        use winit::platform::web::WindowExtWebSys;
+        // On wasm, append the canvas to the document body
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("couldn't append canvas to document body");
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, TextureFormat::Bgra8Unorm));
     }
 }
-
-// let mut img = RgbImage::new(width as u32, height as u32);
-// Draw the sphere/rectangle
-// for ss_x in 0..dimensions.x as u32 {
-//     for ss_y in 0..dimensions.y as u32 {
-//         let img_x = center_ss.x as u32 - dimensions.x as u32 / 2 + ss_x;
-//         let img_y = center_ss.y as u32 - dimensions.y as u32 / 2 + ss_y;
-
-//         if img_x >= width as u32 || img_y >= height as u32 {
-//             continue;
-//         }
-
-//         img.put_pixel(img_x, img_y, Rgb([255, 0, 0]));
-//     }
-// }
-
-// img.save(format!("test_{}.png", z as u32)).unwrap();

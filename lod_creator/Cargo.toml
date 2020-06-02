@@ -1,0 +1,13 @@
+[package]
+name = "lod_creator"
+version = "0.1.0"
+authors = ["Matúš Talčík <matus.talcik@outlook.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+winit = "0.22"
+nalgebra-glm = "0.7"
+kmeans = { path = "../kmeans" }
+ron_loader = { path = "../ron_loader" }
