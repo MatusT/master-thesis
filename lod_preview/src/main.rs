@@ -1,11 +1,18 @@
 mod application;
+mod camera;
+mod pipelines;
 
+use wgpu::*;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
-use wgpu::*;
+
+pub enum ApplicationEvent<'a> {
+    WindowEvent(WindowEvent<'a>),
+    DeviceEvent(DeviceEvent),
+}
 
 async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
     let size = window.inner_size();
@@ -14,7 +21,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
     let adapter = instance
         .request_adapter(
             &RequestAdapterOptions {
-                power_preference: PowerPreference::Power,
+                power_preference: PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
             },
             BackendBit::PRIMARY,
@@ -36,7 +43,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
         .unwrap();
 
     // Initialize the graphics scene
-    let mut application = application::Application::new(size.width, size.height, &surface);
+    let mut application = application::Application::new(size.width, size.height, device, queue);
 
     // Initialize swapchain
     let mut sc_desc = SwapChainDescriptor {
@@ -52,11 +59,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
         *control_flow = ControlFlow::Poll;
         match event {
             // Process all the events
-            event::Event::MainEventsCleared => {
+            Event::MainEventsCleared => {
                 window.request_redraw();
             }
             // Handle resize event as a special case
-            event::Event::WindowEvent {
+            Event::WindowEvent {
                 event: WindowEvent::Resized(size),
                 ..
             } => {
@@ -67,49 +74,22 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
 
                 application.resize(sc_desc.width, sc_desc.height);
             }
-            event::Event::RedrawRequested(_) => {
-                let frame = swap_chain.get_next_texture().unwrap();
+            Event::RedrawRequested(_) => {
+                let frame = swap_chain.get_next_frame().unwrap();
 
-                application.render(&frame.view);
-            }
-            // Gather window + device events
-            event::Event::WindowEvent { event, .. } => {
-                // match event {
-                //     WindowEvent::KeyboardInput {
-                //         input:
-                //             event::KeyboardInput {
-                //                 virtual_keycode: Some(event::VirtualKeyCode::Escape),
-                //                 state: event::ElementState::Pressed,
-                //                 ..
-                //             },
-                //         ..
-                //     }
-                //     | WindowEvent::CloseRequested => {
-                //         *control_flow = ControlFlow::Exit;
-                //     }
-                //     WindowEvent::KeyboardInput {
-                //         input:
-                //             event::KeyboardInput {
-                //                 virtual_keycode: Some(event::VirtualKeyCode::U),
-                //                 state: event::ElementState::Pressed,
-                //                 ..
-                //             },
-                //         ..
-                //     } => {
-                //         ui_on = !ui_on;
-                //     }
-                //     _ => {}
-                // };
-
-                // let event = event.to_static().unwrap();
-
-                // // Send window event to the graphics scene
-                // application.update(ApplicationEvent::from_winit_window_event(&event));
+                application.render(&frame.output.view);
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => *control_flow = ControlFlow::Exit,
+            // Gather window + device events
+            Event::WindowEvent { event, .. } => {
+                application.update(&ApplicationEvent::WindowEvent(event));
+            }
+            Event::DeviceEvent { event, .. } => {
+                application.update(&ApplicationEvent::DeviceEvent(event));
+            }
             _ => {}
         }
     });
@@ -121,7 +101,7 @@ fn main() {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        // env_logger::init();
         // Temporarily avoid srgb formats for the swapchain on the web
         futures::executor::block_on(run(event_loop, window, TextureFormat::Bgra8UnormSrgb));
     }

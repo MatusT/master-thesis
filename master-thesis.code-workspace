@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "lod_preview"
+		},
+		{
+			"path": "data"
 		}
 	],
 	"settings": {}
