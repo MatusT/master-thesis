@@ -10,4 +10,4 @@ edition = "2018"
 winit = "0.22"
 nalgebra-glm = "0.7"
 kmeans = { path = "../kmeans" }
-ron_loader = { path = "../ron_loader" }
+rpdb = { path = "../rpdb" }

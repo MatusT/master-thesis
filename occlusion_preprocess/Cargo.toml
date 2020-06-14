@@ -1,0 +1,24 @@
+[package]
+name = "occlusion_preprocess"
+version = "0.1.0"
+authors = ["Matúš Talčík <matus.talcik@outlook.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Window, Input, Graphics
+winit = { version = "0.22.1", features = ["web-sys"] }
+wgpu = { version = "0.5", git = "https://github.com/gfx-rs/wgpu-rs" }
+
+# Math
+nalgebra-glm = "0.7"
+
+# Utils
+futures = "0.3"
+log = "0.4"
+bytemuck = "1"
+
+# Format loading
+ron = "0.6"
+rpdb = { path = "../rpdb" }

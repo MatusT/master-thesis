@@ -1,6 +1,6 @@
 use kmeans;
 use nalgebra_glm::*;
-use ron_loader::{molecule::Molecule, molecule::MoleculeLod, FromRon, ToRon};
+use rpdb::{molecule::Molecule, molecule::MoleculeLod, FromRon, ToRon};
 
 fn sphere_sreen_space_area(projection: Mat4, dimensions: Vec2, center: Vec3, radius: f32) -> f32 {
     let d2 = dot(&center, &center);
@@ -53,11 +53,15 @@ fn main() {
     lods.push(molecule.lods()[0].clone());
 
     // Constants
-    let width = 3840.0;
-    let height = 2060.0;
+    let width = 1920.0;
+    let height = 1080.0;
     let aspect = width / height;
     let projection = infinite_perspective_rh_no(aspect, 0.785398163, 0.1);
-    let ratios = [0.65, 0.5, 0.35, 0.15, 0.05, 0.1, 0.05, 0.01, 0.005, 0.001, 0.0005];
+    let ratios = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1,
+                  0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01,
+                  0.009, 0.008, 0.007, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001
+    ];
+    let area_threshold = 32.0;
 
     // Current largest radius that is being projected
     let mut radius = lods[0].max_radius();
@@ -86,11 +90,9 @@ fn main() {
 
         // Breakpoint at area limit
         // Currently 64 = 8x8 pixel area
-        if area < 64.0 {
+        if area < area_threshold {
             println!("{:?}", area);
             println!("Distance: {}", z);
-
-            let last_lod = lods.last().unwrap();
 
             // Continue along the reduction ratios
             for reduction_ratio in current_ratio_index..ratios.len() {                
@@ -103,7 +105,7 @@ fn main() {
                 }
 
                 let new_means = kmeans::reduce(
-                    last_lod.atoms(),
+                    lods[0].atoms(),
                     new_centroids_num,
                 );
 
@@ -112,15 +114,18 @@ fn main() {
                     continue;
                 }
 
-                let new_lod = MoleculeLod::new(new_means);
+                let mut new_lod = MoleculeLod::new(new_means, 0.0);
 
                 let new_area = sphere_sreen_space_area(projection, vec2(width, height), position.xyz(), new_lod.max_radius());
                 println!("Possible candidate with {} means of {} area", new_lod.atoms().len(), new_lod.max_radius());
 
                 // If the new are is now above the area limit, save It and continue
-                if new_area > 64.0 {
+                if new_area > area_threshold {
                     radius = new_lod.max_radius();
-                    lods.push(new_lod);                    
+                    
+                    new_lod.set_breakpoint(z);
+                    lods.push(new_lod);
+                                
                     current_ratio_index = reduction_ratio + 1;
                     break;
                 }
@@ -128,5 +133,6 @@ fn main() {
         }        
     }
 
+    molecule.lods = lods;
     molecule.to_ron(&args[1]);
 }

@@ -18,7 +18,7 @@ pub trait Camera {
     fn resize(&mut self, aspect: f32, fov: f32, near: f32);
     fn update(&mut self, event: &ApplicationEvent);
     fn ubo(&mut self) -> CameraUbo;
-    
+
     fn speed(&self) -> f32;
     fn set_speed(&mut self, speed: f32);
 

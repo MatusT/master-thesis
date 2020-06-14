@@ -6,7 +6,7 @@ pub struct SphereBillboardsPipeline {
 }
 
 impl SphereBillboardsPipeline {
-    pub fn new(device: &Device) -> Self {
+    pub fn new(device: &Device, sample_count: u32) -> Self {
         // Shaders
         let vs = include_bytes!("billboards.vert.spv");
         let vs_module =
@@ -77,7 +77,7 @@ impl SphereBillboardsPipeline {
                 index_format: IndexFormat::Uint16,
                 vertex_buffers: &[],
             },
-            sample_count: 1,
+            sample_count,
             sample_mask: !0,
             alpha_to_coverage_enabled: false,
         });

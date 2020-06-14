@@ -43,7 +43,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
         .unwrap();
 
     // Initialize the graphics scene
-    let mut application = application::Application::new(size.width, size.height, device, queue);
+    let mut application = application::Application::new(size.width, size.height, device, queue, swapchain_format, 8);
 
     // Initialize swapchain
     let mut sc_desc = SwapChainDescriptor {
@@ -98,6 +98,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
 fn main() {
     let event_loop = EventLoop::new();
     let window = winit::window::Window::new(&event_loop).unwrap();
+    window.set_inner_size(winit::dpi::PhysicalSize { width: 1920, height: 1080 });
 
     #[cfg(not(target_arch = "wasm32"))]
     {

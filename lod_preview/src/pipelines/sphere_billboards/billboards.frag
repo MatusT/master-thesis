@@ -30,6 +30,4 @@ void main(void)
 	const float diffuse = max(dot(-normal, normalize(position.xyz)), 0.0);
 	
 	out_color = vec4(diffuse, diffuse, diffuse, 1.0);
-	// out_color = vec4(0.3, 0.3, 0.3, 1.0);	
-	// out_color = vec4(normalize(position.xyz) * 0.5 + 0.5, 1.0);
 }

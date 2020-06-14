@@ -1,9 +1,6 @@
 {
 	"folders": [
 		{
-			"path": "ron_loader"
-		},
-		{
 			"path": "kmeans"
 		},
 		{
@@ -14,6 +11,12 @@
 		},
 		{
 			"path": "data"
+		},
+		{
+			"path": "occlusion_preprocess"
+		},
+		{
+			"path": "rpdb"
 		}
 	],
 	"settings": {}

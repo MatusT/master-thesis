@@ -18,7 +18,7 @@ pub fn reduce(points: &[Vec4], centroids_num: usize) -> Vec<Vec4> {
     }
 
     // Iterations
-    for _ in 0..5 {
+    for _ in 0..10 {
         // Find centroids
         for (point_index, point) in points.iter().enumerate() {
             let mut min_dist = std::f32::INFINITY;
@@ -41,17 +41,17 @@ pub fn reduce(points: &[Vec4], centroids_num: usize) -> Vec<Vec4> {
             let mut bounding_radius = 0.0f32;
 
             let mut new_centroid: Vec3 = zero();
-            let old_centroid: Vec3 = centroids[id].xyz();
+            let old_centroid: Vec4 = centroids[id];
 
             for i in 0..points.len() {
                 let add_centroid: bool = memberships[i] == id as i32;
-                let inc_point: Vec3 = if add_centroid { points[i].xyz() } else { zero() };
+                let inc_point: Vec4 = if add_centroid { points[i] } else { zero() };
 
-                new_centroid += inc_point;
+                new_centroid += inc_point.xyz();
                 member_count += if add_centroid { 1 } else { 0 };
                 bounding_radius = if add_centroid {
-                    if distance(&old_centroid, &inc_point) > bounding_radius {
-                        distance(&old_centroid, &inc_point)
+                    if distance(&old_centroid.xyz(), &inc_point.xyz()) + inc_point[3] > bounding_radius {
+                        distance(&old_centroid.xyz(), &inc_point.xyz()) + inc_point[3]
                     } else {
                         bounding_radius
                     }
