@@ -4,7 +4,7 @@ use crate::ApplicationEvent;
 
 use bytemuck::*;
 use nalgebra_glm::*;
-use ron_loader::*;
+use rpdb::*;
 use wgpu::*;
 
 pub struct Application {
@@ -21,9 +21,12 @@ pub struct Application {
     camera_buffer: Buffer,
 
     billboards_pipeline: SphereBillboardsPipeline,
-    billboards_bind_group: BindGroup,
 
-    lods: Vec<(f32, std::ops::Range<u32>)>,
+    /// Array of molecules. Each element contains GPU buffer of atoms of a molecule.
+    molecules: Vec<Buffer>,
+
+    /// Array of structure's molecules. Each element contains GPU buffer of model matrices of one type of molecule.
+    structure: Vec<Buffer>,
 }
 
 impl Application {
@@ -66,36 +69,43 @@ impl Application {
             .create_default_view();
 
         let args: Vec<String> = std::env::args().collect();
-        let molecule: molecule::Molecule = molecule::Molecule::from_ron(&args[1]);
+        
+        let structure_file = structure::Structure::from_ron(&args[1]);
+        let mut molecules = Vec::new();
+        let mut structure = Vec::new();
+        for (molecule_name, molecule_model_matrices) in structure_file.molecules {
+            let molecule = molecule::Molecule::from_ron(std::path::Path::new(&args[1]).with_file_name(molecule_name));
+            let atoms = {
+                let atoms = molecule.lods()[0].atoms();
+                let mut atoms_flat: Vec<f32> = Vec::new();
+                for atom in atoms {
+                    atoms_flat.extend_from_slice(atom.into());
+                }
 
-        let mut atoms = Vec::new();
-        let mut lods: Vec<(f32, std::ops::Range<u32>)> = Vec::new();
-        let mut sum = 0u32;
-        for lod in molecule.lods() {
-            for atom in lod.atoms() {
-                atoms.extend_from_slice(&[atom.x, atom.y, atom.z, atom.w]);
-            }
-            lods.push((
-                lod.breakpoint(),
-                sum * 3..(sum + lod.atoms().len() as u32) * 3,
-            ));
-            sum += lod.atoms().len() as u32;
+                atoms_flat
+            };            
+            molecules.push(device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE));
+
+            let molecule_model_matrices = {
+                let mut matrices_flat: Vec<f32> = Vec::new();
+                for molecule_model_matrix in molecule_model_matrices {
+                    for i in 0..16 {
+                        matrices_flat.push(molecule_model_matrix[i]);
+                    }
+                }
+
+                matrices_flat
+            };
+            structure.push(device.create_buffer_with_data(cast_slice(&molecule_model_matrices), BufferUsage::STORAGE));
         }
 
-        camera.set_distance(distance(
-            &molecule.bounding_box.min,
-            &molecule.bounding_box.max,
-        ));
-        camera.set_speed(distance(&molecule.bounding_box.min, &molecule.bounding_box.max) / 10.0);
-
-        let spheres_positions = device.create_buffer_with_data(
-            cast_slice(&atoms),
-            BufferUsage::STORAGE | BufferUsage::COPY_DST,
-        );
+        // camera.set_distance(distance(
+        //     &molecule.bounding_box.min,
+        //     &molecule.bounding_box.max,
+        // ));
+        // camera.set_speed(distance(&molecule.bounding_box.min, &molecule.bounding_box.max) / 10.0);
 
         let billboards_pipeline = SphereBillboardsPipeline::new(&device, 8);
-        let billboards_bind_group =
-            billboards_pipeline.create_bind_group(&device, &camera_buffer, &spheres_positions);
 
         Self {
             width,
@@ -111,9 +121,9 @@ impl Application {
             camera_buffer,
 
             billboards_pipeline,
-            billboards_bind_group,
 
-            lods,
+            molecules,
+            structure,
         }
     }
 
@@ -123,8 +133,6 @@ impl Application {
 
     pub fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
         self.camera.update(event);
-
-        // println!("Camer distance: {}", self.camera.distance());
     }
 
     pub fn render(&mut self, frame: &TextureView) {
@@ -170,22 +178,22 @@ impl Application {
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
-            rpass.set_bind_group(0, &self.billboards_bind_group, &[]);
+            // rpass.set_bind_group(0, &self.billboards_bind_group, &[]);
 
-            for i in 0..self.lods.len() {
-                if (i == self.lods.len() - 1)
-                    || (self.camera.distance() > self.lods[i].0
-                        && self.camera.distance() < self.lods[i + 1].0)
-                {
-                    println!(
-                        "Choosing LOD: {} with {} of spheres",
-                        i,
-                        (self.lods[i].1.end - self.lods[i].1.start) / 3
-                    );
-                    rpass.draw(self.lods[i].1.clone(), 0..1);
-                    break;
-                }
-            }
+            // for i in 0..self.lods.len() {
+            //     if (i == self.lods.len() - 1)
+            //         || (self.camera.distance() > self.lods[i].0
+            //             && self.camera.distance() < self.lods[i + 1].0)
+            //     {
+            //         println!(
+            //             "Choosing LOD: {} with {} of spheres",
+            //             i,
+            //             (self.lods[i].1.end - self.lods[i].1.start) / 3
+            //         );
+            //         rpass.draw(self.lods[i].1.clone(), 0..1);
+            //         break;
+            //     }
+            // }
         }
 
         self.queue.submit(Some(encoder.finish()));

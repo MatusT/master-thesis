@@ -24,6 +24,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
                 power_preference: PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
             },
+            UnsafeExtensions::disallow(),
             BackendBit::PRIMARY,
         )
         .await
@@ -32,10 +33,9 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
     let (device, queue) = adapter
         .request_device(
             &DeviceDescriptor {
-                extensions: Extensions {
-                    anisotropic_filtering: false,
-                },
+                extensions: Extensions::empty(),
                 limits: Limits::default(),
+                shader_validation: false,
             },
             None,
         )

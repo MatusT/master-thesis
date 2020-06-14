@@ -7,8 +7,12 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   vec4 position;
 };
 
-layout(set = 0, binding = 1, std430) buffer Positions {
+layout(set = 1, binding = 0, std430) buffer Positions {
   vec4 positions[];
+};
+
+layout(set = 2, binding = 0, std430) buffer ModelMatrices {
+  mat4 model_matrices[];
 };
 
 layout(location = 0) out vec2 uv;
@@ -22,12 +26,14 @@ const vec2 vertices[3] = {
 };
 
 void main(void) {
-  const vec4 world_position = positions[gl_VertexIndex / 3];
-  scale = world_position.w;
-  const vec2 vertex = scale * vertices[gl_VertexIndex % 3];  
-
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
+
+  const mat4 model_matrix = model_matrices[gl_InstanceIndex];
+  const vec4 world_position = model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
+  scale = positions[gl_VertexIndex / 3].w;
+
+  const vec2 vertex = scale * vertices[gl_VertexIndex % 3];
   const vec4 position_worldspace = vec4(
       world_position.xyz +
       vertex.x * camera_right +

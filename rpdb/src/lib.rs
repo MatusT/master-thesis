@@ -1,4 +1,5 @@
 pub mod molecule;
+pub mod structure;
 
 use nalgebra_glm::{max2, min2, vec3, Vec3, Vec4, vec4};
 use serde::{Deserialize, Serialize};
@@ -68,7 +69,7 @@ pub fn center_atoms(mut atoms: Vec<Vec4>) -> Vec<Vec4> {
 }
 
 pub trait FromRon {
-    fn from_ron<P: AsRef<std::path::Path>>(p: P) -> molecule::Molecule;
+    fn from_ron<P: AsRef<std::path::Path>>(p: P) -> Self;
 }
 
 pub trait ToRon {
@@ -76,7 +77,7 @@ pub trait ToRon {
 }
 
 impl FromRon for molecule::Molecule {
-    fn from_ron<P: AsRef<std::path::Path>>(path: P) -> molecule::Molecule {
+    fn from_ron<P: AsRef<std::path::Path>>(path: P) -> Self {
         let file = std::fs::read_to_string(&path).expect("Could not open structure file.");
 
         ron::de::from_str(&file).expect("Could not deserialize structure file.")
@@ -122,63 +123,10 @@ impl FromPdb for molecule::Molecule {
     }
 }
 
-// pub fn load_molecules(path: &Path) -> Vec<Vec4> {
-//     let mut atoms = Vec::new();
-//     let mut molecules = HashMap::new();
+impl FromRon for structure::Structure {
+    fn from_ron<P: AsRef<std::path::Path>>(path: P) -> Self {
+        let file = std::fs::read_to_string(&path).expect("Could not open structure file.");
 
-//     let directory = path.parent().expect("File must be in a directory.");
-//     for entry in fs::read_dir(directory).expect("read_dir call failed") {
-//         let entry = entry.unwrap();
-//         let molecule_path = entry.path();
-
-//         let molecule_path_str = molecule_path.to_str().unwrap();
-//         if molecule_path_str.ends_with(".pdb") {
-//             let pdb_name = molecule_path
-//                 .file_name()
-//                 .unwrap()
-//                 .to_str()
-//                 .unwrap()
-//                 .trim_end_matches(".pdb")
-//                 .to_ascii_uppercase();
-//             let pdb_molecule = load_molecule(&molecule_path);
-
-//             molecules.insert(pdb_name, pdb_molecule);
-//         }
-//     }
-
-//     let structure_file = File::open(path).expect("Could not open structure file.");
-//     let structure_reader = BufReader::new(&structure_file);
-//     for line in structure_reader.lines() {
-//         if let Ok(line) = line {
-//             let parts: Vec<&str> = line.split(' ').collect();
-
-//             if parts.len() == 9 {
-//                 let molecule_name = parts[0];
-
-//                 let molecule_position = vec3(
-//                     parts[1].parse::<f32>().unwrap(),
-//                     parts[2].parse::<f32>().unwrap(),
-//                     parts[3].parse::<f32>().unwrap(),
-//                 );
-//                 let molecule_quaternion = quat(
-//                     -parts[7].parse::<f32>().unwrap(),
-//                     parts[4].parse::<f32>().unwrap(),
-//                     parts[5].parse::<f32>().unwrap(),
-//                     -parts[6].parse::<f32>().unwrap(),
-//                 );
-
-//                 let translation = translation(&(3333.33 * molecule_position));
-//                 let rotation = quat_to_mat4(&molecule_quaternion);
-
-//                 let molecule_atoms: Vec<Vec4> = molecules[molecule_name]
-//                     .clone()
-//                     .iter()
-//                     .map(|v| translation * rotation * v)
-//                     .collect();
-//                 atoms.extend(molecule_atoms);
-//             }
-//         }
-//     }
-
-//     atoms
-// }
+        ron::de::from_str(&file).expect("Could not deserialize structure file.")
+    }
+}
