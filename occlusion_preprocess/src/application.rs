@@ -3,7 +3,6 @@ use crate::pipelines::SphereBillboardsPipeline;
 use crate::ApplicationEvent;
 
 use bytemuck::*;
-use nalgebra_glm::*;
 use rpdb::*;
 use wgpu::*;
 
@@ -19,24 +18,33 @@ pub struct Application {
 
     camera: RotationCamera,
     camera_buffer: Buffer,
+    camera_bind_group: BindGroup,
 
     billboards_pipeline: SphereBillboardsPipeline,
 
     /// Array of molecules. Each element contains GPU buffer of atoms of a molecule.
     molecules: Vec<Buffer>,
+    molecules_len: Vec<u32>,
 
     /// Array of structure's molecules. Each element contains GPU buffer of model matrices of one type of molecule.
     structure: Vec<Buffer>,
+    structure_len: Vec<u32>,
+    structure_bind_groups: Vec<BindGroup>,
 }
 
 impl Application {
-    pub fn new(width: u32, height: u32, device: Device, queue: Queue, swapchain_format: TextureFormat, sample_count: u32) -> Self {
-        let mut camera = RotationCamera::new(width as f32 / height as f32, 0.785398163, 0.1);
-        let camera_buffer = device.create_buffer_with_data(
-            cast_slice(&[camera.ubo()]),
-            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-        );
+    pub fn new(
+        width: u32,
+        height: u32,
+        device: Device,
+        queue: Queue,
+        swapchain_format: TextureFormat,
+        sample_count: u32,
+    ) -> Self {
+        // Pipelines
+        let billboards_pipeline = SphereBillboardsPipeline::new(&device, sample_count);
 
+        // Default framebuffer
         let depth_texture = device.create_texture(&TextureDescriptor {
             label: None,
             size: Extent3d {
@@ -68,13 +76,20 @@ impl Application {
             })
             .create_default_view();
 
+        // Data
         let args: Vec<String> = std::env::args().collect();
-        
+
         let structure_file = structure::Structure::from_ron(&args[1]);
         let mut molecules = Vec::new();
+        let mut molecules_len = Vec::new();
         let mut structure = Vec::new();
+        let mut structure_len = Vec::new();
+        let mut structure_bind_groups = Vec::new();
         for (molecule_name, molecule_model_matrices) in structure_file.molecules {
-            let molecule = molecule::Molecule::from_ron(std::path::Path::new(&args[1]).with_file_name(molecule_name));
+            // println!("{:?}", std::path::Path::new(&args[1]).with_file_name(&molecule_name));
+            let molecule = molecule::Molecule::from_ron(
+                std::path::Path::new(&args[1]).with_file_name(molecule_name + ".ron"),
+            );
             let atoms = {
                 let atoms = molecule.lods()[0].atoms();
                 let mut atoms_flat: Vec<f32> = Vec::new();
@@ -83,8 +98,10 @@ impl Application {
                 }
 
                 atoms_flat
-            };            
-            molecules.push(device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE));
+            };
+            molecules
+                .push(device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE));
+            molecules_len.push((atoms.len() / 4) as u32 * 3);
 
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
@@ -96,16 +113,42 @@ impl Application {
 
                 matrices_flat
             };
-            structure.push(device.create_buffer_with_data(cast_slice(&molecule_model_matrices), BufferUsage::STORAGE));
+            structure.push(device.create_buffer_with_data(
+                cast_slice(&molecule_model_matrices),
+                BufferUsage::STORAGE,
+            ));
+            structure_len.push(molecule_model_matrices.len() as u32 / 16);
+            structure_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &billboards_pipeline.per_molecule_bind_group_layout,
+                bindings: &[Binding {
+                    binding: 0,
+                    resource: BindingResource::Buffer(molecules.last().unwrap().slice(0..!0)),
+                },
+                Binding {
+                    binding: 1,
+                    resource: BindingResource::Buffer(structure.last().unwrap().slice(0..!0)),
+                }],
+            }));
         }
 
-        // camera.set_distance(distance(
-        //     &molecule.bounding_box.min,
-        //     &molecule.bounding_box.max,
-        // ));
-        // camera.set_speed(distance(&molecule.bounding_box.min, &molecule.bounding_box.max) / 10.0);
+        // Camera
+        let mut camera = RotationCamera::new(width as f32 / height as f32, 0.785398163, 0.1);
+        let camera_buffer = device.create_buffer_with_data(
+            cast_slice(&[camera.ubo()]),
+            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        );
+        camera.set_distance(3000.0);
+        camera.set_speed(100.0);
 
-        let billboards_pipeline = SphereBillboardsPipeline::new(&device, 8);
+        let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &billboards_pipeline.camera_bind_group_layout,
+            bindings: &[Binding {
+                binding: 0,
+                resource: BindingResource::Buffer(camera_buffer.slice(0..!0)),
+            }],
+        });
 
         Self {
             width,
@@ -119,11 +162,16 @@ impl Application {
 
             camera,
             camera_buffer,
+            camera_bind_group,
 
             billboards_pipeline,
 
             molecules,
+            molecules_len,
+
             structure,
+            structure_len,
+            structure_bind_groups,
         }
     }
 
@@ -158,8 +206,10 @@ impl Application {
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &self.multisampled_texture,
-                    resolve_target: Some(&frame),
+                    attachment: &frame,
+                    resolve_target: None,
+                    // attachment: &self.multisampled_texture,
+                    // resolve_target: Some(&frame),
                     load_op: LoadOp::Clear,
                     store_op: StoreOp::Store,
                     clear_color: Color::WHITE,
@@ -178,22 +228,13 @@ impl Application {
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
-            // rpass.set_bind_group(0, &self.billboards_bind_group, &[]);
+            rpass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            // for i in 0..self.lods.len() {
-            //     if (i == self.lods.len() - 1)
-            //         || (self.camera.distance() > self.lods[i].0
-            //             && self.camera.distance() < self.lods[i + 1].0)
-            //     {
-            //         println!(
-            //             "Choosing LOD: {} with {} of spheres",
-            //             i,
-            //             (self.lods[i].1.end - self.lods[i].1.start) / 3
-            //         );
-            //         rpass.draw(self.lods[i].1.clone(), 0..1);
-            //         break;
-            //     }
-            // }
+            for (molecule_id, molecule) in self.molecules.iter().enumerate() {
+                rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
+
+                rpass.draw(0..self.molecules_len[molecule_id], 0..self.structure_len[molecule_id]);
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));

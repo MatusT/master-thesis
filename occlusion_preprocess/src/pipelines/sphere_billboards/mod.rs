@@ -2,7 +2,6 @@ use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,
     pub camera_bind_group_layout: BindGroupLayout,
-    pub per_atom_bind_group_layout: BindGroupLayout,
     pub per_molecule_bind_group_layout: BindGroupLayout,
 }
 
@@ -17,49 +16,44 @@ impl SphereBillboardsPipeline {
             device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap());
 
         // Bind group layouts
-        let camera_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Camera bind group layout"),
-            bindings: &[
-                BindGroupLayoutEntry {
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Camera bind group layout"),
+                bindings: &[BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
                     ty: BindingType::UniformBuffer { dynamic: false },
-                    .. Default::default()
-                },
-            ],
-        });
-        let per_atom_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Atom bind group layout"),
-            bindings: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX,
-                    ty: BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: true,
+                    ..Default::default()
+                }],
+            });
+        let per_molecule_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Molecule bind group layout"),
+                bindings: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::VERTEX,
+                        ty: BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                        ..Default::default()
                     },
-                    .. Default::default()
-                },
-            ],
-        });
-        let per_molecule_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Molecule bind group layout"),
-            bindings: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX,
-                    ty: BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: true,
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::VERTEX,
+                        ty: BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                        ..Default::default()
                     },
-                    .. Default::default()
-                },
-            ],
-        });
+                ],
+            });
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&camera_bind_group_layout, &per_atom_bind_group_layout, &per_molecule_bind_group_layout],
+            bind_group_layouts: &[&camera_bind_group_layout, &per_molecule_bind_group_layout],
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -107,7 +101,6 @@ impl SphereBillboardsPipeline {
         Self {
             pipeline,
             camera_bind_group_layout,
-            per_atom_bind_group_layout,
             per_molecule_bind_group_layout,
         }
     }

@@ -11,7 +11,7 @@ layout(set = 1, binding = 0, std430) buffer Positions {
   vec4 positions[];
 };
 
-layout(set = 2, binding = 0, std430) buffer ModelMatrices {
+layout(set = 1, binding = 1, std430) buffer ModelMatrices {
   mat4 model_matrices[];
 };
 
