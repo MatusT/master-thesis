@@ -7,9 +7,14 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   vec4 position;
 };
 
+layout(set = 1, binding = 2, std430) buffer ModelMatrices {
+  int count[];
+};
+
 layout(location = 0) in vec2 uv;
 layout(location = 1) in vec4 position_clip_space;
 layout(location = 2) in flat float scale;
+layout(location = 3) in flat vec3 color;
 
 layout(location = 0) out vec4 out_color;
 
@@ -29,5 +34,5 @@ void main(void)
 
 	const float diffuse = max(dot(-normal, normalize(position.xyz)), 0.0);
 	
-	out_color = vec4(diffuse, diffuse, diffuse, 1.0);
+	out_color = vec4(color * diffuse, 1.0);
 }

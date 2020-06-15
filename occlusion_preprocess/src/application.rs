@@ -1,5 +1,5 @@
 use crate::camera::*;
-use crate::pipelines::SphereBillboardsPipeline;
+use crate::pipelines::{SphereBillboardsPipeline, SphereBillboardsDepthPipeline};
 use crate::ApplicationEvent;
 
 use bytemuck::*;
@@ -21,6 +21,8 @@ pub struct Application {
     camera_bind_group: BindGroup,
 
     billboards_pipeline: SphereBillboardsPipeline,
+    billboards_depth_pipeline: SphereBillboardsDepthPipeline,
+    billboards_depth_write_pipeline: SphereBillboardsDepthPipeline,
 
     /// Array of molecules. Each element contains GPU buffer of atoms of a molecule.
     molecules: Vec<Buffer>,
@@ -30,6 +32,12 @@ pub struct Application {
     structure: Vec<Buffer>,
     structure_len: Vec<u32>,
     structure_bind_groups: Vec<BindGroup>,
+
+    /// Occlusion data
+    structure_visible: Vec<Buffer>,
+    structure_visible_bind_groups: Vec<BindGroup>,
+
+    recalculate: bool,
 }
 
 impl Application {
@@ -43,6 +51,8 @@ impl Application {
     ) -> Self {
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(&device, sample_count);
+        let billboards_depth_pipeline = SphereBillboardsDepthPipeline::new(&device, sample_count, false);
+        let billboards_depth_write_pipeline = SphereBillboardsDepthPipeline::new(&device, sample_count, true);
 
         // Default framebuffer
         let depth_texture = device.create_texture(&TextureDescriptor {
@@ -80,13 +90,17 @@ impl Application {
         let args: Vec<String> = std::env::args().collect();
 
         let structure_file = structure::Structure::from_ron(&args[1]);
+
         let mut molecules = Vec::new();
         let mut molecules_len = Vec::new();
         let mut structure = Vec::new();
         let mut structure_len = Vec::new();
         let mut structure_bind_groups = Vec::new();
+
+        let mut structure_visible = Vec::new();
+        let mut structure_visible_bind_groups = Vec::new();
+
         for (molecule_name, molecule_model_matrices) in structure_file.molecules {
-            // println!("{:?}", std::path::Path::new(&args[1]).with_file_name(&molecule_name));
             let molecule = molecule::Molecule::from_ron(
                 std::path::Path::new(&args[1]).with_file_name(molecule_name + ".ron"),
             );
@@ -121,14 +135,41 @@ impl Application {
             structure_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &billboards_pipeline.per_molecule_bind_group_layout,
-                bindings: &[Binding {
-                    binding: 0,
-                    resource: BindingResource::Buffer(molecules.last().unwrap().slice(0..!0)),
-                },
-                Binding {
-                    binding: 1,
-                    resource: BindingResource::Buffer(structure.last().unwrap().slice(0..!0)),
-                }],
+                bindings: &[
+                    Binding {
+                        binding: 0,
+                        resource: BindingResource::Buffer(molecules.last().unwrap().slice(0..!0)),
+                    },
+                    Binding {
+                        binding: 1,
+                        resource: BindingResource::Buffer(structure.last().unwrap().slice(0..!0)),
+                    },
+                ],
+            }));
+
+            structure_visible.push(device.create_buffer_with_data(
+                cast_slice(&vec![0i32; molecule_model_matrices.len()]),
+                BufferUsage::STORAGE,
+            ));
+            structure_visible_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &billboards_depth_pipeline.per_molecule_bind_group_layout,
+                bindings: &[
+                    Binding {
+                        binding: 0,
+                        resource: BindingResource::Buffer(molecules.last().unwrap().slice(0..!0)),
+                    },
+                    Binding {
+                        binding: 1,
+                        resource: BindingResource::Buffer(structure.last().unwrap().slice(0..!0)),
+                    },
+                    Binding {
+                        binding: 2,
+                        resource: BindingResource::Buffer(
+                            structure_visible.last().unwrap().slice(0..!0),
+                        ),
+                    },
+                ],
             }));
         }
 
@@ -143,7 +184,7 @@ impl Application {
 
         let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
-            layout: &billboards_pipeline.camera_bind_group_layout,
+            layout: &billboards_depth_pipeline.camera_bind_group_layout,
             bindings: &[Binding {
                 binding: 0,
                 resource: BindingResource::Buffer(camera_buffer.slice(0..!0)),
@@ -165,6 +206,8 @@ impl Application {
             camera_bind_group,
 
             billboards_pipeline,
+            billboards_depth_pipeline,
+            billboards_depth_write_pipeline,
 
             molecules,
             molecules_len,
@@ -172,6 +215,11 @@ impl Application {
             structure,
             structure_len,
             structure_bind_groups,
+
+            structure_visible,
+            structure_visible_bind_groups,
+
+            recalculate: true,
         }
     }
 
@@ -203,6 +251,36 @@ impl Application {
             );
         }
 
+        if self.recalculate {
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[],
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_texture,
+                    depth_load_op: LoadOp::Clear,
+                    depth_store_op: StoreOp::Store,
+                    stencil_load_op: LoadOp::Clear,
+                    stencil_store_op: StoreOp::Store,
+                    clear_depth: 0.0,
+                    clear_stencil: 0,
+                    stencil_read_only: true,
+                    depth_read_only: false,
+                }),
+            });
+
+            rpass.set_pipeline(&self.billboards_depth_pipeline.pipeline);
+            rpass.set_bind_group(0, &self.camera_bind_group, &[]);
+
+            for molecule_id in 0..self.molecules.len() {
+                rpass.set_bind_group(1, &self.structure_visible_bind_groups[molecule_id], &[]);
+
+                rpass.draw(
+                    0..self.molecules_len[molecule_id],
+                    0..self.structure_len[molecule_id],
+                );
+            }
+        }
+
+        /*
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
@@ -233,9 +311,13 @@ impl Application {
             for (molecule_id, molecule) in self.molecules.iter().enumerate() {
                 rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
 
-                rpass.draw(0..self.molecules_len[molecule_id], 0..self.structure_len[molecule_id]);
+                rpass.draw(
+                    0..self.molecules_len[molecule_id],
+                    0..self.structure_len[molecule_id],
+                );
             }
         }
+        */
 
         self.queue.submit(Some(encoder.finish()));
     }

@@ -18,7 +18,7 @@ layout(set = 1, binding = 1, std430) buffer ModelMatrices {
 layout(location = 0) out vec2 uv;
 layout(location = 1) out vec4 position_clip_space;
 layout(location = 2) out flat float scale;
-layout(location = 3) out flat vec3 color;
+layout(location = 3) out flat int instance_index;
 
 const vec2 vertices[3] = {
     vec2(-1.72, -1.0),
@@ -51,9 +51,7 @@ void main(void) {
       vertex.x * camera_right +
       vertex.y * camera_up, 1.0);
 
-	uint mhash = hash(gl_InstanceIndex);
-	color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
-
+  instance_index = gl_VertexIndex;
   uv = vertex;
   position_clip_space = projection_view * position_worldspace;    
   gl_Position = position_clip_space;
