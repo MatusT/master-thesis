@@ -1,12 +1,15 @@
 use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,
-    pub camera_bind_group_layout: BindGroupLayout,
     pub per_molecule_bind_group_layout: BindGroupLayout,
 }
 
 impl SphereBillboardsPipeline {
-    pub fn new(device: &Device, sample_count: u32) -> Self {
+    pub fn new(
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        sample_count: u32,
+    ) -> Self {
         // Shaders
         let vs = include_bytes!("billboards.vert.spv");
         let vs_module =
@@ -16,16 +19,6 @@ impl SphereBillboardsPipeline {
             device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap());
 
         // Bind group layouts
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                    ty: BindingType::UniformBuffer { dynamic: false },
-                    ..Default::default()
-                }],
-            });
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Molecule bind group layout"),
@@ -100,7 +93,6 @@ impl SphereBillboardsPipeline {
 
         Self {
             pipeline,
-            camera_bind_group_layout,
             per_molecule_bind_group_layout,
         }
     }
@@ -108,12 +100,16 @@ impl SphereBillboardsPipeline {
 
 pub struct SphereBillboardsDepthPipeline {
     pub pipeline: RenderPipeline,
-    pub camera_bind_group_layout: BindGroupLayout,
-    pub per_molecule_bind_group_layout: BindGroupLayout,
 }
 
 impl SphereBillboardsDepthPipeline {
-    pub fn new(device: &Device, sample_count: u32, write_visibility: bool) -> Self {
+    pub fn new(
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        per_molecule_bind_group_layout: &BindGroupLayout,
+        sample_count: u32,
+        write_visibility: bool,
+    ) -> Self {
         // Shaders
         let vs = include_bytes!("billboards_depth.vert.spv");
         let vs_module =
@@ -121,55 +117,10 @@ impl SphereBillboardsDepthPipeline {
         let fs = include_bytes!("billboards_depth.frag.spv");
         let fs_write = include_bytes!("billboards_depth_write.frag.spv");
         let fs_module = if write_visibility {
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap())
-        } else {
             device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs_write[..])).unwrap())
+        } else {
+            device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap())
         };
-
-        // Bind group layouts
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                    ty: BindingType::UniformBuffer { dynamic: false },
-                    ..Default::default()
-                }],
-            });
-        let per_molecule_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Molecule bind group layout"),
-                bindings: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                        },
-                        ..Default::default()
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                        },
-                        ..Default::default()
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStage::FRAGMENT,
-                        ty: BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: false,
-                        },
-                        ..Default::default()
-                    },
-                ],
-            });
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -227,10 +178,6 @@ impl SphereBillboardsDepthPipeline {
             alpha_to_coverage_enabled: false,
         });
 
-        Self {
-            pipeline,
-            camera_bind_group_layout,
-            per_molecule_bind_group_layout,
-        }
+        Self { pipeline }
     }
 }

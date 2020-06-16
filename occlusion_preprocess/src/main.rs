@@ -14,11 +14,11 @@ pub enum ApplicationEvent<'a> {
     DeviceEvent(DeviceEvent),
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
+fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
     let size = window.inner_size();
     let instance = Instance::new();
     let surface = unsafe { instance.create_surface(&window) };
-    let adapter = instance
+    let adapter = futures::executor::block_on(instance
         .request_adapter(
             &RequestAdapterOptions {
                 power_preference: PowerPreference::HighPerformance,
@@ -26,11 +26,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
             },
             UnsafeExtensions::disallow(),
             BackendBit::PRIMARY,
-        )
-        .await
+        ))
         .unwrap();
 
-    let (device, queue) = adapter
+    let (device, queue) = futures::executor::block_on(adapter
         .request_device(
             &DeviceDescriptor {
                 extensions: Extensions::empty(),
@@ -38,9 +37,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: Textur
                 shader_validation: false,
             },
             None,
-        )
-        .await
+        ))
         .unwrap();
+
+    println!("Init done");
 
     // Initialize the graphics scene
     let mut application =
@@ -108,7 +108,7 @@ fn main() {
     {
         // env_logger::init();
         // Temporarily avoid srgb formats for the swapchain on the web
-        futures::executor::block_on(run(event_loop, window, TextureFormat::Bgra8UnormSrgb));
+        run(event_loop, window, TextureFormat::Bgra8UnormSrgb);
     }
     #[cfg(target_arch = "wasm32")]
     {
