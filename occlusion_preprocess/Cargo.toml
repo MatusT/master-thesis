@@ -15,7 +15,7 @@ wgpu = { version = "0.5", git = "https://github.com/gfx-rs/wgpu-rs" }
 nalgebra-glm = "0.7"
 
 # Utils
-futures = { version = "0.3", features = ["thread-pool"] }
+futures = { version = "0.3" }
 log = "0.4"
 bytemuck = "1"
 

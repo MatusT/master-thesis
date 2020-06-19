@@ -11,36 +11,32 @@ impl SphereBillboardsPipeline {
         sample_count: u32,
     ) -> Self {
         // Shaders
-        let vs = include_bytes!("billboards.vert.spv");
-        let vs_module =
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&vs[..])).unwrap());
-        let fs = include_bytes!("billboards.frag.spv");
-        let fs_module =
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap());
+        let vs_module = device.create_shader_module(include_spirv!("billboards.vert.spv"));
+        let fs_module = device.create_shader_module(include_spirv!("billboards.frag.spv"));
 
         // Bind group layouts
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Molecule bind group layout"),
                 bindings: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
+                    BindGroupLayoutEntry::new(
+                        0,
+                        ShaderStage::VERTEX,
+                        BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
+                            min_binding_size: NonZeroBufferAddress::new(16)
                         },
-                        ..Default::default()
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
+                    ),
+                    BindGroupLayoutEntry::new(
+                        1,
+                        ShaderStage::VERTEX,
+                        BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
+                            min_binding_size: NonZeroBufferAddress::new(64)
                         },
-                        ..Default::default()
-                    },
+                    ),
                 ],
             });
 
@@ -111,15 +107,11 @@ impl SphereBillboardsDepthPipeline {
         write_visibility: bool,
     ) -> Self {
         // Shaders
-        let vs = include_bytes!("billboards_depth.vert.spv");
-        let vs_module =
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&vs[..])).unwrap());
-        let fs = include_bytes!("billboards_depth.frag.spv");
-        let fs_write = include_bytes!("billboards_depth_write.frag.spv");
+        let vs_module = device.create_shader_module(include_spirv!("billboards_depth.vert.spv"));
         let fs_module = if write_visibility {
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs_write[..])).unwrap())
+            device.create_shader_module(include_spirv!("billboards_depth_write.frag.spv"))
         } else {
-            device.create_shader_module(&read_spirv(std::io::Cursor::new(&fs[..])).unwrap())
+            device.create_shader_module(include_spirv!("billboards_depth.frag.spv"))
         };
 
         // Pipeline

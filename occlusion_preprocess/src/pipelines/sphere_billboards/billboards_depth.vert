@@ -51,7 +51,7 @@ void main(void) {
       vertex.x * camera_right +
       vertex.y * camera_up, 1.0);
 
-  instance_index = gl_VertexIndex;
+  instance_index = gl_InstanceIndex;
   uv = vertex;
   position_clip_space = projection_view * position_worldspace;    
   gl_Position = position_clip_space;

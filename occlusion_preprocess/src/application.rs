@@ -1,12 +1,32 @@
 use crate::camera::*;
-use crate::pipelines::{SphereBillboardsDepthPipeline, SphereBillboardsPipeline};
+use crate::hilbert;
+use crate::pipelines::{SphereBillboardsDepthPipeline, SphereBillboardsPipeline, LinesPipeline};
 use crate::ApplicationEvent;
 
-use std::convert::TryInto;
 use bytemuck::*;
 use rpdb::*;
+use std::convert::TryInto;
+use std::mem::size_of;
 use wgpu::*;
-use futures::executor::ThreadPool;
+
+pub fn list_to_ranges(list: &[u32]) -> Vec<(u32, u32)> {
+    let mut ranges = Vec::new();
+
+    let mut start = 0;
+    for (index, value) in list.iter().enumerate() {
+        if (index == list.len() - 1) || (*value != list[index + 1] - 1) {
+            ranges.push((list[start], *value + 1));
+            start = index + 1;
+
+            if start >= list.len() - 1 {
+                break;
+            }
+        }
+    }
+
+    ranges
+}
+
 pub struct Application {
     width: u32,
     height: u32,
@@ -24,6 +44,7 @@ pub struct Application {
     billboards_pipeline: SphereBillboardsPipeline,
     billboards_depth_pipeline: SphereBillboardsDepthPipeline,
     billboards_depth_write_pipeline: SphereBillboardsDepthPipeline,
+    lines_pipeline: LinesPipeline,
 
     /// Array of molecules. Each element contains GPU buffer of atoms of a molecule.
     molecules: Vec<Buffer>,
@@ -37,12 +58,11 @@ pub struct Application {
     /// Occlusion data
     pub structure_visible: Vec<Buffer>,
     pub structure_visible_staging: Vec<Buffer>,
-    pub structure_visible_cpu: Vec<Vec<i32>>,
+    pub structure_visible_cpu: Vec<Vec<u32>>,
     pub structure_visible_bind_groups: Vec<BindGroup>,
+    pub structure_result: Vec<Vec<(u32, u32)>>,
 
     pub recalculate: bool,
-
-    threadpool: ThreadPool,
 }
 
 impl Application {
@@ -57,45 +77,47 @@ impl Application {
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                    ty: BindingType::UniformBuffer { dynamic: false },
-                    ..Default::default()
-                }],
+                bindings: &[BindGroupLayoutEntry::new(
+                    0,
+                    ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                    BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: None,
+                    },
+                )],
             });
 
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Molecule bind group layout"),
                 bindings: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
+                    BindGroupLayoutEntry::new(
+                        0,
+                        ShaderStage::VERTEX,
+                        BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
+                            min_binding_size: None,
                         },
-                        ..Default::default()
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::VERTEX,
-                        ty: BindingType::StorageBuffer {
+                    ),
+                    BindGroupLayoutEntry::new(
+                        1,
+                        ShaderStage::VERTEX,
+                        BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
+                            min_binding_size: None,
                         },
-                        ..Default::default()
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStage::FRAGMENT,
-                        ty: BindingType::StorageBuffer {
+                    ),
+                    BindGroupLayoutEntry::new(
+                        2,
+                        ShaderStage::FRAGMENT,
+                        BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: false,
+                            min_binding_size: None,
                         },
-                        ..Default::default()
-                    },
+                    ),
                 ],
             });
 
@@ -116,6 +138,7 @@ impl Application {
             sample_count,
             true,
         );
+        let lines_pipeline = LinesPipeline::new(&device, &camera_bind_group_layout, sample_count);
 
         // Default framebuffer
         let depth_texture = device.create_texture(&TextureDescriptor {
@@ -182,6 +205,7 @@ impl Application {
                 .push(device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE));
             molecules_len.push((atoms.len() / 4) as u32 * 3);
 
+            let molecule_model_matrices = hilbert::sort_by_hilbert(&molecule_model_matrices).0;
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
                 for molecule_model_matrix in molecule_model_matrices {
@@ -223,7 +247,7 @@ impl Application {
                 usage: wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: false,
             }));
-            structure_visible_cpu.push(vec![0i32; molecule_model_matrices.len() / 16]);
+            structure_visible_cpu.push(vec![0; molecule_model_matrices.len() / 16]);
             structure_visible_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &per_molecule_bind_group_layout,
@@ -245,6 +269,7 @@ impl Application {
                 ],
             }));
         }
+        let structure_result = vec![Vec::new(); structure_len.len()];
 
         // Camera
         let mut camera = RotationCamera::new(width as f32 / height as f32, 0.785398163, 0.1);
@@ -252,7 +277,7 @@ impl Application {
             cast_slice(&[camera.ubo()]),
             BufferUsage::UNIFORM | BufferUsage::COPY_DST,
         );
-        camera.set_distance(3000.0);
+        camera.set_distance(2200.0);
         camera.set_speed(100.0);
 
         let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
@@ -263,8 +288,6 @@ impl Application {
                 resource: BindingResource::Buffer(camera_buffer.slice(0..!0)),
             }],
         });
-
-        let threadpool = ThreadPool::new().unwrap();
 
         Self {
             width,
@@ -283,6 +306,7 @@ impl Application {
             billboards_pipeline,
             billboards_depth_pipeline,
             billboards_depth_write_pipeline,
+            lines_pipeline,
 
             molecules,
             molecules_len,
@@ -295,9 +319,9 @@ impl Application {
             structure_visible_staging,
             structure_visible_cpu,
             structure_visible_bind_groups,
+            structure_result,
 
             recalculate: true,
-            threadpool,
         }
     }
 
@@ -306,6 +330,19 @@ impl Application {
     }
 
     pub fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
+        match event {
+            ApplicationEvent::WindowEvent(event) => match event {
+                winit::event::WindowEvent::KeyboardInput { input, .. } => {
+                    if let Some(keycode) = input.virtual_keycode {
+                        if keycode == winit::event::VirtualKeyCode::Space {
+                            self.recalculate = true;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
         self.camera.update(event);
     }
 
@@ -366,7 +403,7 @@ impl Application {
                         attachment: &self.depth_texture,
                         depth_load_op: LoadOp::Load,
                         depth_store_op: StoreOp::Store,
-                        stencil_load_op: LoadOp::Clear,
+                        stencil_load_op: LoadOp::Load,
                         stencil_store_op: StoreOp::Store,
                         clear_depth: 0.0,
                         clear_stencil: 0,
@@ -398,11 +435,8 @@ impl Application {
                         as BufferAddress,
                 );
             }
-
-            self.recalculate = false;
         }
 
-        /*
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
@@ -418,7 +452,7 @@ impl Application {
                     attachment: &self.depth_texture,
                     depth_load_op: LoadOp::Clear,
                     depth_store_op: StoreOp::Store,
-                    stencil_load_op: LoadOp::Clear,
+                    stencil_load_op: LoadOp::Load,
                     stencil_store_op: StoreOp::Store,
                     clear_depth: 0.0,
                     clear_stencil: 0,
@@ -430,49 +464,94 @@ impl Application {
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            for (molecule_id, molecule) in self.molecules.iter().enumerate() {
-                rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
+            // for molecule_id in 11..12 {
+            for molecule_id in 0..self.molecules.len() {
+                // if self.structure_len[molecule_id] == 60976 {
+                    rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
 
-                rpass.draw(
-                    0..self.molecules_len[molecule_id],
-                    0..self.structure_len[molecule_id],
-                );
+                    rpass.draw(
+                        0..self.molecules_len[molecule_id],
+                        0..self.structure_len[molecule_id],
+                    );
+                    // for range in self.structure_result[molecule_id].iter() {
+                    //     // rpass.draw(0..self.molecules_len[molecule_id], range.0..range.1);
+                    // }
+                // }
             }
         }
-        */
 
         self.queue.submit(Some(encoder.finish()));
 
-        for molecule_id in 0..1 {
-            let buffer_slice = self.structure_visible_staging[molecule_id].slice(0..4);
-            let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
+        if self.recalculate {
+            let mut seen_atoms = 0;
+            let mut total_atoms = 0;
+            let mut seen_molecules = 0;
 
-            // Poll the device in a blocking manner so that our future resolves.
-            // In an actual application, `device.poll(...)` should
-            // be called in an event loop or on another thread.
-            self.device.poll(Maintain::Wait);
-            
-            let visible: Vec<i32> = if let Ok(()) = futures::executor::block_on(buffer_future) {
-                let data = buffer_slice.get_mapped_range();
-                let result = data
-                    .chunks_exact(4)
-                    .map(|b| i32::from_ne_bytes(b.try_into().unwrap()))
-                    .collect();
+            for molecule_id in 0..self.molecules.len() {
+                let buffer_slice = self.structure_visible_staging[molecule_id].slice(..);
+                let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
 
-                // With the current interface, we have to make sure all mapped views are
-                // dropped before we unmap the buffer.
-                drop(data);
+                // Poll the device in a blocking manner so that our future resolves.
+                // In an actual application, `device.poll(...)` should
+                // be called in an event loop or on another thread.
+                self.device.poll(Maintain::Wait);
+
+                self.structure_visible_cpu[molecule_id] =
+                    if let Ok(()) = futures::executor::block_on(buffer_future) {
+                        let data = buffer_slice.get_mapped_range();
+                        let result = data
+                            .chunks_exact(4)
+                            .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+                            .collect();
+
+                        // With the current interface, we have to make sure all mapped views are
+                        // dropped before we unmap the buffer.
+                        drop(data);
+                        self.structure_visible_staging[molecule_id].unmap();
+
+                        result
+                    } else {
+                        panic!("failed to run on gpu!")
+                    };
+
                 self.structure_visible_staging[molecule_id].unmap();
 
-                result
-            } else {
-                panic!("failed to run on gpu!")
-            };
-            
-            self.structure_visible_staging[molecule_id].unmap();
+                let mut tmp = self.structure_visible_cpu[molecule_id]
+                    .iter()
+                    .enumerate()
+                    .filter_map(|e| if *e.1 == 1 { Some(e.0 as u32) } else { None })
+                    .collect::<Vec<u32>>();
+                tmp.sort();
+                self.structure_result[molecule_id] = list_to_ranges(&tmp);
+
+                // println!("{:?}", self.structure_result[molecule_id]);
+
+                println!(
+                    "Molecule #{} count {}/{} | Ranges: {}",
+                    molecule_id,
+                    tmp.len(),
+                    self.structure_len[molecule_id],
+                    self.structure_result[molecule_id].len(),
+                    // self.structure_result[molecule_id]
+                );
+
+                seen_atoms += tmp.len() as u32 * (self.molecules_len[molecule_id] / 3);
+                seen_molecules += tmp.len();
+                total_atoms +=
+                    self.structure_len[molecule_id] * (self.molecules_len[molecule_id] / 3);
+            }
+
+            println!("Total atoms: {}/{}", seen_atoms, total_atoms);
+            println!(
+                "Total molecules: {}/{}",
+                seen_molecules,
+                self.structure_len.iter().sum::<u32>()
+            );
+
+            self.recalculate = false;
         }
 
-        println!("Frame done");
+        // println!("Frame done");
     }
 
     pub fn device(&self) -> &Device {

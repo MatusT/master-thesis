@@ -18,7 +18,7 @@ layout(location = 3) in flat vec3 color;
 
 layout(location = 0) out vec4 out_color;
 
-void main(void)
+void main()
 {
 	const float len = length(uv);
 	if (length(uv) > scale) {

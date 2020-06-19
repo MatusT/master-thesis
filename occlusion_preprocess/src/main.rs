@@ -1,5 +1,6 @@
 mod application;
 mod camera;
+mod hilbert;
 mod pipelines;
 
 use wgpu::*;
@@ -16,29 +17,26 @@ pub enum ApplicationEvent<'a> {
 
 fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
     let size = window.inner_size();
-    let instance = Instance::new();
+    let instance = Instance::new(BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
-    let adapter = futures::executor::block_on(instance
-        .request_adapter(
-            &RequestAdapterOptions {
-                power_preference: PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-            },
-            UnsafeExtensions::disallow(),
-            BackendBit::PRIMARY,
-        ))
-        .unwrap();
+    let adapter = futures::executor::block_on(instance.request_adapter(
+        &RequestAdapterOptions {
+            power_preference: PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+        },
+        UnsafeExtensions::disallow(),
+    ))
+    .unwrap();
 
-    let (device, queue) = futures::executor::block_on(adapter
-        .request_device(
-            &DeviceDescriptor {
-                extensions: Extensions::empty(),
-                limits: Limits::default(),
-                shader_validation: false,
-            },
-            None,
-        ))
-        .unwrap();
+    let (device, queue) = futures::executor::block_on(adapter.request_device(
+        &DeviceDescriptor {
+            extensions: Extensions::empty(),
+            limits: Limits::default(),
+            shader_validation: false,
+        },
+        None,
+    ))
+    .unwrap();
 
     println!("Init done");
 
@@ -100,8 +98,8 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = winit::window::Window::new(&event_loop).unwrap();
     window.set_inner_size(winit::dpi::PhysicalSize {
-        width: 1920,
-        height: 1080,
+        width: 2560,
+        height: 1440,
     });
 
     #[cfg(not(target_arch = "wasm32"))]

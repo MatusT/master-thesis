@@ -37,7 +37,7 @@ uint hash(uint a)
    return a;
 }
 
-void main(void) {
+void main() {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
@@ -51,8 +51,10 @@ void main(void) {
       vertex.x * camera_right +
       vertex.y * camera_up, 1.0);
 
-	uint mhash = hash(gl_InstanceIndex);
-	color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+	// uint mhash = hash(gl_InstanceIndex);
+	// color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+  uint mhash = hash(gl_InstanceIndex / 256);
+  color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
 
   uv = vertex;
   position_clip_space = projection_view * position_worldspace;    
