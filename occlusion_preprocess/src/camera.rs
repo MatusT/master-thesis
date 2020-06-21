@@ -29,8 +29,8 @@ pub trait Camera {
 pub struct RotationCamera {
     ubo: CameraUbo,
 
-    yaw: f32,
-    pitch: f32,
+    pub yaw: f32,
+    pub pitch: f32,
     distance: f32,
 
     speed: f32,
@@ -50,7 +50,7 @@ impl RotationCamera {
                 position: glm::zero(),
             },
 
-            yaw: -90.0,
+            yaw: 0.0,
             pitch: 0.0,
             distance,
 
@@ -61,7 +61,7 @@ impl RotationCamera {
         let eye = camera.distance * camera.direction_vector();
         camera.ubo.view = glm::look_at(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         camera.ubo.projection_view = camera.ubo.projection * camera.ubo.view;
-        camera.ubo.position = glm::vec4(eye[0], eye[1], eye[2], 0.0);
+        camera.ubo.position = glm::vec4(eye[0], eye[1], eye[2], 1.0);
 
         camera
     }

@@ -53,8 +53,9 @@ void main() {
 
 	// uint mhash = hash(gl_InstanceIndex);
 	// color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
-  uint mhash = hash(gl_InstanceIndex / 256);
+  uint mhash = hash(gl_InstanceIndex / (model_matrices.length() / 6));
   color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+  // color = vec3((gl_InstanceIndex * 10.0) / 25.0);
 
   uv = vertex;
   position_clip_space = projection_view * position_worldspace;    

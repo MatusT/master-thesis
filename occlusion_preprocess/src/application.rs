@@ -1,12 +1,12 @@
+use crate::biological_structure::*;
 use crate::camera::*;
 use crate::hilbert;
-use crate::pipelines::{SphereBillboardsDepthPipeline, SphereBillboardsPipeline, LinesPipeline};
+use crate::pipelines::{LinesPipeline, SphereBillboardsDepthPipeline, SphereBillboardsPipeline};
 use crate::ApplicationEvent;
 
 use bytemuck::*;
 use rpdb::*;
 use std::convert::TryInto;
-use std::mem::size_of;
 use wgpu::*;
 
 pub fn list_to_ranges(list: &[u32]) -> Vec<(u32, u32)> {
@@ -49,6 +49,7 @@ pub struct Application {
     /// Array of molecules. Each element contains GPU buffer of atoms of a molecule.
     molecules: Vec<Buffer>,
     molecules_len: Vec<u32>,
+    molecules_lods: Vec<Vec<(f32, std::ops::Range<u32>)>>,
 
     /// Array of structure's molecules. Each element contains GPU buffer of model matrices of one type of molecule.
     pub structure: Vec<Buffer>,
@@ -63,6 +64,9 @@ pub struct Application {
     pub structure_result: Vec<Vec<(u32, u32)>>,
 
     pub recalculate: bool,
+
+    projected_lines: Buffer,
+    projected_lines_len: u32,
 }
 
 impl Application {
@@ -179,6 +183,8 @@ impl Application {
 
         let mut molecules = Vec::new();
         let mut molecules_len = Vec::new();
+        let mut molecules_lods = Vec::new();
+
         let mut structure = Vec::new();
         let mut structure_len = Vec::new();
         let mut structure_bind_groups = Vec::new();
@@ -188,24 +194,52 @@ impl Application {
         let mut structure_visible_cpu = Vec::new();
         let mut structure_visible_bind_groups = Vec::new();
 
+        let mut projected_lines = Vec::new();
+        // let mut hilbert_lines = Vec::new();
+
         for (molecule_name, molecule_model_matrices) in structure_file.molecules {
             let molecule = molecule::Molecule::from_ron(
                 std::path::Path::new(&args[1]).with_file_name(molecule_name + ".ron"),
             );
-            let atoms = {
-                let atoms = molecule.lods()[0].atoms();
-                let mut atoms_flat: Vec<f32> = Vec::new();
-                for atom in atoms {
-                    atoms_flat.extend_from_slice(atom.into());
+            let mut molecule_lods: Vec<(f32, std::ops::Range<u32>)> = Vec::new();
+            let mut atoms = Vec::new();
+            let mut sum = 0u32;
+            for lod in molecule.lods() {
+                for atom in lod.atoms() {
+                    atoms.extend_from_slice(&[atom.x, atom.y, atom.z, atom.w]);
                 }
+                molecule_lods.push((
+                    lod.breakpoint(),
+                    sum * 3..(sum + lod.atoms().len() as u32) * 3,
+                ));
+                sum += lod.atoms().len() as u32;
+            }
 
-                atoms_flat
-            };
             molecules
                 .push(device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE));
             molecules_len.push((atoms.len() / 4) as u32 * 3);
+            molecules_lods.push(molecule_lods);
 
-            let molecule_model_matrices = hilbert::sort_by_hilbert(&molecule_model_matrices).0;
+            // Hilbert lines
+            let hilbert = hilbert::sort_by_hilbert(&molecule_model_matrices);
+            for d in hilbert.1[2].iter() {
+                for m in d {
+                    let v = m.column(3).xyz();
+                    let xy = hilbert::intersect_inside_no(&v);
+                    // let face = hilbert::vector_cube_face(&xy);
+                    // let distance = length(&v);
+                    // let xy = distance * xy;
+
+                    // if face == hilbert::CubeFace::Back {
+                    projected_lines.extend_from_slice(&[xy[0], xy[1], 0.0]);
+                    projected_lines.push(v[0]);
+                    projected_lines.push(v[1]);
+                    projected_lines.push(v[2]);
+                    // }
+                }
+            }
+
+            let molecule_model_matrices = hilbert.0;
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
                 for molecule_model_matrix in molecule_model_matrices {
@@ -269,6 +303,10 @@ impl Application {
                 ],
             }));
         }
+        let projected_lines_len = (projected_lines.len() / 6) as u32;
+        let projected_lines =
+            device.create_buffer_with_data(cast_slice(&projected_lines), BufferUsage::VERTEX);
+
         let structure_result = vec![Vec::new(); structure_len.len()];
 
         // Camera
@@ -310,6 +348,7 @@ impl Application {
 
             molecules,
             molecules_len,
+            molecules_lods,
 
             structure,
             structure_len,
@@ -322,6 +361,9 @@ impl Application {
             structure_result,
 
             recalculate: true,
+
+            projected_lines,
+            projected_lines_len,
         }
     }
 
@@ -351,7 +393,9 @@ impl Application {
             .device
             .create_command_encoder(&CommandEncoderDescriptor { label: None });
 
+        //================== CAMERA DATA UPLOAD
         {
+            // self.camera.yaw += 1.0;
             let size = std::mem::size_of::<CameraUbo>();
             let camera_buffer = self
                 .device
@@ -366,6 +410,7 @@ impl Application {
             );
         }
 
+        //================== OCCLUSION
         if self.recalculate {
             {
                 let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -437,6 +482,7 @@ impl Application {
             }
         }
 
+        //================== RENDER MOLECULES
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
@@ -464,36 +510,28 @@ impl Application {
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-            // for molecule_id in 11..12 {
             for molecule_id in 0..self.molecules.len() {
-                // if self.structure_len[molecule_id] == 60976 {
-                    rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
+                rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
 
-                    rpass.draw(
-                        0..self.molecules_len[molecule_id],
-                        0..self.structure_len[molecule_id],
-                    );
-                    // for range in self.structure_result[molecule_id].iter() {
-                    //     // rpass.draw(0..self.molecules_len[molecule_id], range.0..range.1);
-                    // }
-                // }
+                for range in self.structure_result[molecule_id].iter() {
+                    rpass.draw(0..self.molecules_len[molecule_id], range.0..range.1);
+                }
             }
+
+            // //================== LINES
+            // rpass.set_pipeline(&self.lines_pipeline.pipeline);
+            // rpass.set_bind_group(0, &self.camera_bind_group, &[]);
+            // rpass.set_vertex_buffer(0, self.projected_lines.slice(0..!0));
+            // rpass.draw(0..self.projected_lines_len, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));
 
+        //================== OCCLUSION DOWNLOAD
         if self.recalculate {
-            let mut seen_atoms = 0;
-            let mut total_atoms = 0;
-            let mut seen_molecules = 0;
-
             for molecule_id in 0..self.molecules.len() {
                 let buffer_slice = self.structure_visible_staging[molecule_id].slice(..);
                 let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
-
-                // Poll the device in a blocking manner so that our future resolves.
-                // In an actual application, `device.poll(...)` should
-                // be called in an event loop or on another thread.
                 self.device.poll(Maintain::Wait);
 
                 self.structure_visible_cpu[molecule_id] =
@@ -504,8 +542,6 @@ impl Application {
                             .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
                             .collect();
 
-                        // With the current interface, we have to make sure all mapped views are
-                        // dropped before we unmap the buffer.
                         drop(data);
                         self.structure_visible_staging[molecule_id].unmap();
 
@@ -523,35 +559,27 @@ impl Application {
                     .collect::<Vec<u32>>();
                 tmp.sort();
                 self.structure_result[molecule_id] = list_to_ranges(&tmp);
-
-                // println!("{:?}", self.structure_result[molecule_id]);
-
-                println!(
-                    "Molecule #{} count {}/{} | Ranges: {}",
-                    molecule_id,
-                    tmp.len(),
-                    self.structure_len[molecule_id],
-                    self.structure_result[molecule_id].len(),
-                    // self.structure_result[molecule_id]
-                );
-
-                seen_atoms += tmp.len() as u32 * (self.molecules_len[molecule_id] / 3);
-                seen_molecules += tmp.len();
-                total_atoms +=
-                    self.structure_len[molecule_id] * (self.molecules_len[molecule_id] / 3);
             }
 
-            println!("Total atoms: {}/{}", seen_atoms, total_atoms);
-            println!(
-                "Total molecules: {}/{}",
-                seen_molecules,
-                self.structure_len.iter().sum::<u32>()
-            );
+            self.structure_result =
+                reduce_visible(&self.molecules_len, self.structure_result.clone(), 1024);
+
+            for molecule_id in 0..self.molecules.len() {
+                println!(
+                    "Molecule #{} count {}/{}",
+                    molecule_id,
+                    self.structure_result[molecule_id]
+                        .iter()
+                        .map(|range| (range.1 - range.0) as usize)
+                        .sum::<usize>(),
+                    self.structure_len[molecule_id]
+                );
+            }
 
             self.recalculate = false;
         }
 
-        // println!("Frame done");
+        println!("{}", self.camera.distance());
     }
 
     pub fn device(&self) -> &Device {

@@ -53,7 +53,15 @@ impl LinesPipeline {
             }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[],
+                vertex_buffers: &[VertexBufferDescriptor {
+                    step_mode: InputStepMode::Vertex,
+                    stride: 12,
+                    attributes: &[VertexAttributeDescriptor {
+                        offset: 0,
+                        shader_location: 0,
+                        format: VertexFormat::Float3,
+                    }],
+                }],
             },
             sample_count,
             sample_mask: !0,

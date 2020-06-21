@@ -1,4 +1,5 @@
 mod application;
+mod biological_structure;
 mod camera;
 mod hilbert;
 mod pipelines;
@@ -37,8 +38,6 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
         None,
     ))
     .unwrap();
-
-    println!("Init done");
 
     // Initialize the graphics scene
     let mut application =
@@ -98,8 +97,8 @@ fn main() {
     let event_loop = EventLoop::new();
     let window = winit::window::Window::new(&event_loop).unwrap();
     window.set_inner_size(winit::dpi::PhysicalSize {
-        width: 2560,
-        height: 1440,
+        width: 1920,
+        height: 1080,
     });
 
     #[cfg(not(target_arch = "wasm32"))]

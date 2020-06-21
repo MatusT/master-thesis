@@ -25,7 +25,7 @@ impl SphereBillboardsPipeline {
                         BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
-                            min_binding_size: NonZeroBufferAddress::new(16)
+                            min_binding_size: NonZeroBufferAddress::new(16),
                         },
                     ),
                     BindGroupLayoutEntry::new(
@@ -34,7 +34,7 @@ impl SphereBillboardsPipeline {
                         BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
-                            min_binding_size: NonZeroBufferAddress::new(64)
+                            min_binding_size: NonZeroBufferAddress::new(64),
                         },
                     ),
                 ],

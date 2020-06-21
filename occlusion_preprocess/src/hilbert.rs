@@ -1,5 +1,6 @@
 use nalgebra_glm::{max2, min2, normalize, vec2, vec3, Mat4, Vec2, Vec3};
 /// X+, X-, Y+, Y-, Z+, Z-
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CubeFace {
     Right,
     Left,
@@ -12,93 +13,73 @@ pub enum CubeFace {
 impl From<CubeFace> for u32 {
     fn from(face: CubeFace) -> Self {
         match face {
-            CubeFace::Right => 0,
+            CubeFace::Front => 0,            
             CubeFace::Left => 1,
             CubeFace::Top => 2,
-            CubeFace::Bottom => 3,
-            CubeFace::Front => 4,
+            CubeFace::Right => 3,           
+            CubeFace::Bottom => 4,            
             CubeFace::Back => 5,
         }
     }
 }
 
-fn vector_cube_face(v: &Vec3) -> CubeFace {
+pub fn vector_cube_face(v: &Vec3) -> CubeFace {
     let v = normalize(&v);
+    let v_abs = v.abs();
 
-    let mut max_i = 0;
-    let mut max = 0.0;
-
-    for i in 0..3 {
-        if v[i] > max {
-            max = v[i];
-            max_i = i;
+    if v_abs.x > v_abs.y && v_abs.x > v_abs.z {
+        // X major
+        if v.x >= 0.0 {
+            CubeFace::Right
+        } else {
+            CubeFace::Left
         }
-    }
-
-    match max_i {
-        0 => {
-            if max > 0.0 {
-                CubeFace::Right
-            } else {
-                CubeFace::Left
-            }
+    } else if v_abs.y > v_abs.z {
+        // Y major
+        if v.y >= 0.0 {
+            CubeFace::Top
+        } else {
+            CubeFace::Bottom
         }
-        1 => {
-            if max > 0.0 {
-                CubeFace::Top
-            } else {
-                CubeFace::Bottom
-            }
+    } else {
+        // Z major
+        if v.z >= 0.0 {
+            CubeFace::Front
+        } else {
+            CubeFace::Back
         }
-        2 => {
-            if max > 0.0 {
-                CubeFace::Front
-            } else {
-                CubeFace::Back
-            }
-        }
-        _ => panic!("Not a possible value."),
     }
 }
 
-fn intersect_inside_no(v: &Vec3) -> Vec3 {
-    let v_norm = normalize(&v);
+pub fn intersect_inside_no(v: &Vec3) -> Vec3 {
+    let v = if *v == vec3(0.0, 0.0, 0.0) {
+        vec3(1.0, 0.0, 0.0)
+    } else {
+        normalize(&v)
+    };
 
     let box_min = vec3(-1.0, -1.0, -1.0);
     let box_max = vec3(1.0, 1.0, 1.0);
 
-    let t_min = box_min.component_div(&v_norm);
-    let t_max = box_max.component_div(&v_norm);
+    let t_min = box_min.component_div(&v);
+    let t_max = box_max.component_div(&v);
 
     let t1 = min2(&t_min, &t_max);
     let t2 = max2(&t_min, &t_max);
 
-    // let near = t1[0].max(t1[1]).max(t1[2]);
+    let near = t1[0].max(t1[1]).max(t1[2]);
     let far = t2[0].min(t2[1]).min(t2[2]);
 
-    far * v
-}
+    let result = far * v;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        use super::intersect_inside_no;
-        use nalgebra_glm::vec3;
+    assert!(result[0] >= -1.0);
+    assert!(result[1] >= -1.0);
+    assert!(result[2] >= -1.0);
+    assert!(result[0] <= 1.0);
+    assert!(result[1] <= 1.0);
+    assert!(result[2] <= 1.0);
 
-        assert_eq!(
-            intersect_inside_no(&vec3(1.0, 1.0, 1.0)),
-            vec3(1.7320509, 1.7320509, 1.7320509)
-        );
-        assert_eq!(
-            intersect_inside_no(&vec3(-1.0, -1.0, -1.0)),
-            vec3(-1.7320509, -1.7320509, -1.7320509)
-        );
-        assert_eq!(
-            intersect_inside_no(&vec3(1.0, 0.0, 0.0)),
-            vec3(1.0, 0.0, 0.0)
-        );
-    }
+    result
 }
 
 /// Converts (X, Y, Z) normalized cartesian coordinate to (φ, θ)/(azimuth, latitude) spherical coordinate
@@ -124,7 +105,7 @@ fn rot(n: u32, x: &mut u32, y: &mut u32, rx: u32, ry: u32) {
 }
 
 /// Converts (X, Y) coordinates to hilbert index
-fn hilbert_xy_to_d(n: u32, mut x: u32, mut y: u32) -> u32 {
+pub fn hilbert_xy_to_d(n: u32, mut x: u32, mut y: u32) -> u32 {
     let mut d = 0;
     let mut s = n / 2;
     while s > 0 {
@@ -139,9 +120,9 @@ fn hilbert_xy_to_d(n: u32, mut x: u32, mut y: u32) -> u32 {
     return d;
 }
 
-fn vector_to_xy_face(v: &Vec3) -> (Vec2, CubeFace) {
+pub fn vector_to_xy_face(v: &Vec3) -> (Vec2, CubeFace) {
     let pos = intersect_inside_no(v);
-    let face = vector_cube_face(v);
+    let face = vector_cube_face(&pos);
 
     match face {
         CubeFace::Right => (vec2(-pos.z, pos.y), face),
@@ -158,9 +139,16 @@ pub fn vector_to_hilbert_face(n: u32, v: &Vec3) -> (u32, CubeFace) {
     // Find the intersection on the cube
     let (xy, face) = vector_to_xy_face(v);
 
+    // println!("{:?} {:?}", v, xy);
+
+    assert!(xy[0] >= -1.0);
+    assert!(xy[0] >= -1.0);
+    assert!(xy[1] <= 1.0);
+    assert!(xy[1] <= 1.0);
+
     // Map to integer dimension
     let x = ((xy[0] + 1.0) * (n / 2) as f32).round() as u32;
-    let y = ((xy[0] + 1.0) * (n / 2) as f32).round() as u32;
+    let y = ((xy[1] + 1.0) * (n / 2) as f32).round() as u32;
 
     // Map to hilbert curve on the face
     let hilbert = hilbert_xy_to_d(n, x, y);
@@ -169,26 +157,61 @@ pub fn vector_to_hilbert_face(n: u32, v: &Vec3) -> (u32, CubeFace) {
 }
 
 pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>) {
-    let n = 64;
+    let n = 32;
 
-    let mut faces = vec![vec![Vec::new(); n * n]; 6];
+    let mut faces: Vec<Vec<Vec<Mat4>>> = vec![vec![Vec::new(); n * n]; 6];
 
-    let mut new_order = Vec::new();
+    let mut new_order: Vec<Mat4> = Vec::new();
     for m in matrices {
         let translation = m.column(3).xyz();
 
         let (d, face) = vector_to_hilbert_face(n as u32, &translation);
 
-        faces[face as usize][d as usize].push(m);
+        faces[face as usize][d as usize].push(*m);
     }
 
-    for face in faces {
-        for hilbert_point in face {
-            for m in hilbert_point {
+    for face in faces.iter() {
+        for hilbert_point in face.iter() {
+            for m in hilbert_point.iter() {
                 new_order.push(m.clone());
             }
         }
     }
 
-    new_order
+    (new_order, faces)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn vector_cube_face() {
+        use super::{vector_cube_face, CubeFace};
+        use nalgebra_glm::vec3;
+
+        assert!(vector_cube_face(&vec3(1.0, 0.0, 0.0)) == CubeFace::Right);
+        assert!(vector_cube_face(&vec3(-1.0, 0.0, 0.0)) == CubeFace::Left);
+        assert!(vector_cube_face(&vec3(0.0, 0.0, 1.0)) == CubeFace::Front);
+        assert!(vector_cube_face(&vec3(0.0, 0.0, -1.0)) == CubeFace::Back);
+        assert!(vector_cube_face(&vec3(0.0, 1.0, 0.0)) == CubeFace::Top);
+        assert!(vector_cube_face(&vec3(0.0, -1.0, 0.0)) == CubeFace::Bottom);
+    }
+
+    #[test]
+    fn intersect_inside_no() {
+        use super::intersect_inside_no;
+        use nalgebra_glm::vec3;
+
+        assert_eq!(
+            intersect_inside_no(&vec3(10.0, 10.0, 10.0)),
+            vec3(1.0, 1.0, 1.0)
+        );
+        assert_eq!(
+            intersect_inside_no(&vec3(-1.0, -1.0, -1.0)),
+            vec3(-1.0, -1.0, -1.0)
+        );
+        assert_eq!(
+            intersect_inside_no(&vec3(1000.0, 0.0, 0.0)),
+            vec3(1.0, 0.0, 0.0)
+        );
+    }
 }

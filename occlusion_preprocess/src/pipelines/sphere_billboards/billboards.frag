@@ -5,7 +5,7 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   mat4 view;
   mat4 projection_view;
   vec4 position;
-};
+} camera;
 
 layout(set = 1, binding = 2, std430) buffer ModelMatrices {
   int count[];
@@ -29,10 +29,10 @@ void main()
 	const vec3 normal = normalize(vec3(uv.x, uv.y, z));
 	
 	// Depth Adjustment
-	const vec4 fragment_position_clip = position_clip_space + projection[2] * z;
+	const vec4 fragment_position_clip = position_clip_space + camera.projection[2] * z;
 	gl_FragDepth = fragment_position_clip.z / fragment_position_clip.w;
 
-	const float diffuse = max(dot(-normal, normalize(position.xyz)), 0.0);
+	const float diffuse = max(dot(normal, vec3(0.0, 0.0, 1.0)), 0.0);
 	
 	out_color = vec4(color * diffuse, 1.0);
 }
