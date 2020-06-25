@@ -13,11 +13,11 @@ pub enum CubeFace {
 impl From<CubeFace> for u32 {
     fn from(face: CubeFace) -> Self {
         match face {
-            CubeFace::Front => 0,            
+            CubeFace::Right => 0,
             CubeFace::Left => 1,
             CubeFace::Top => 2,
-            CubeFace::Right => 3,           
-            CubeFace::Bottom => 4,            
+            CubeFace::Bottom => 3,
+            CubeFace::Front => 4,
             CubeFace::Back => 5,
         }
     }
@@ -156,8 +156,8 @@ pub fn vector_to_hilbert_face(n: u32, v: &Vec3) -> (u32, CubeFace) {
     (hilbert, face)
 }
 
-pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>) {
-    let n = 32;
+pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>, [u32; 6]) {
+    let n = 128;
 
     let mut faces: Vec<Vec<Vec<Mat4>>> = vec![vec![Vec::new(); n * n]; 6];
 
@@ -170,15 +170,19 @@ pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>) {
         faces[face as usize][d as usize].push(*m);
     }
 
-    for face in faces.iter() {
+    let mut faces_starts = [0u32; 6];
+    let mut sum = 0u32;
+    for (face_index, face) in faces.iter().enumerate() {
         for hilbert_point in face.iter() {
             for m in hilbert_point.iter() {
                 new_order.push(m.clone());
             }
+            sum += hilbert_point.len() as u32;
         }
+        faces_starts[face_index] = sum;
     }
 
-    (new_order, faces)
+    (new_order, faces, faces_starts)
 }
 
 #[cfg(test)]

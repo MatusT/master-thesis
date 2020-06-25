@@ -5,6 +5,7 @@ use crate::pipelines::{LinesPipeline, SphereBillboardsDepthPipeline, SphereBillb
 use crate::ApplicationEvent;
 
 use bytemuck::*;
+use nalgebra_glm::{length, max2};
 use rpdb::*;
 use std::convert::TryInto;
 use wgpu::*;
@@ -54,6 +55,7 @@ pub struct Application {
     /// Array of structure's molecules. Each element contains GPU buffer of model matrices of one type of molecule.
     pub structure: Vec<Buffer>,
     pub structure_len: Vec<u32>,
+    pub structure_faces: Vec<[u32; 6]>,
     pub structure_bind_groups: Vec<BindGroup>,
 
     /// Occlusion data
@@ -67,6 +69,8 @@ pub struct Application {
 
     projected_lines: Buffer,
     projected_lines_len: u32,
+
+    structure_radius: f32,
 }
 
 impl Application {
@@ -187,6 +191,7 @@ impl Application {
 
         let mut structure = Vec::new();
         let mut structure_len = Vec::new();
+        let mut structure_faces = Vec::new();
         let mut structure_bind_groups = Vec::new();
 
         let mut structure_visible = Vec::new();
@@ -197,6 +202,7 @@ impl Application {
         let mut projected_lines = Vec::new();
         // let mut hilbert_lines = Vec::new();
 
+        let mut structure_radius = 0.0f32;
         for (molecule_name, molecule_model_matrices) in structure_file.molecules {
             let molecule = molecule::Molecule::from_ron(
                 std::path::Path::new(&args[1]).with_file_name(molecule_name + ".ron"),
@@ -243,6 +249,8 @@ impl Application {
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
                 for molecule_model_matrix in molecule_model_matrices {
+                    let distance = length(&molecule_model_matrix.column(3).xyz());
+                    structure_radius = structure_radius.max(distance);
                     for i in 0..16 {
                         matrices_flat.push(molecule_model_matrix[i]);
                     }
@@ -255,6 +263,7 @@ impl Application {
                 BufferUsage::STORAGE,
             ));
             structure_len.push(molecule_model_matrices.len() as u32 / 16);
+            structure_faces.push(hilbert.2);
             structure_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &billboards_pipeline.per_molecule_bind_group_layout,
@@ -352,6 +361,7 @@ impl Application {
 
             structure,
             structure_len,
+            structure_faces,
             structure_bind_groups,
 
             structure_visible,
@@ -364,6 +374,8 @@ impl Application {
 
             projected_lines,
             projected_lines_len,
+
+            structure_radius,
         }
     }
 
@@ -435,7 +447,8 @@ impl Application {
                     rpass.set_bind_group(1, &self.structure_visible_bind_groups[molecule_id], &[]);
 
                     rpass.draw(
-                        0..self.molecules_len[molecule_id],
+                        self.molecules_lods[molecule_id][0].1.start
+                            ..self.molecules_lods[molecule_id][0].1.end,
                         0..self.structure_len[molecule_id],
                     );
                 }
@@ -464,7 +477,8 @@ impl Application {
                     rpass.set_bind_group(1, &self.structure_visible_bind_groups[molecule_id], &[]);
 
                     rpass.draw(
-                        0..self.molecules_len[molecule_id],
+                        self.molecules_lods[molecule_id][0].1.start
+                            ..self.molecules_lods[molecule_id][0].1.end,
                         0..self.structure_len[molecule_id],
                     );
                 }
@@ -510,11 +524,31 @@ impl Application {
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_bind_group(0, &self.camera_bind_group, &[]);
 
+            let distance = self.camera.distance() - self.structure_radius;
             for molecule_id in 0..self.molecules.len() {
                 rpass.set_bind_group(1, &self.structure_bind_groups[molecule_id], &[]);
 
-                for range in self.structure_result[molecule_id].iter() {
-                    rpass.draw(0..self.molecules_len[molecule_id], range.0..range.1);
+                // Select LOD
+                for i in 0..self.molecules_lods[molecule_id].len() {
+                    if (i == self.molecules_lods[molecule_id].len() - 1)
+                        || (distance > self.molecules_lods[molecule_id][i].0
+                            && distance < self.molecules_lods[molecule_id][i + 1].0)
+                    {
+                        // println!(
+                        //     "Choosing LOD: {} with {} of spheres",
+                        //     i,
+                        //     (self.molecules_lods[molecule_id][i].1.end - self.molecules_lods[molecule_id][i].1.start) / 3
+                        // );
+                        // rpass.draw(self.molecules_lods[molecule_id][i].1.clone(), 0..1);
+                        // Draw ranges
+                        for range in self.structure_result[molecule_id].iter() {
+                            let start = self.molecules_lods[molecule_id][i].1.start;
+                            let end = self.molecules_lods[molecule_id][i].1.end;
+                            rpass.draw(start..end, range.0..range.1);
+                        }
+
+                        break;
+                    }
                 }
             }
 
@@ -561,25 +595,33 @@ impl Application {
                 self.structure_result[molecule_id] = list_to_ranges(&tmp);
             }
 
-            self.structure_result =
-                reduce_visible(&self.molecules_len, self.structure_result.clone(), 1024);
+            self.structure_result = reduce_visible(
+                &self.molecules_len,
+                self.structure_result.clone(),
+                &self.structure_faces,
+                128,
+            );
 
+            let mut sum_visible_molecules = 0;
+            let mut sum_molecules = 0;
             for molecule_id in 0..self.molecules.len() {
+                let visible_molecules = self.structure_result[molecule_id]
+                    .iter()
+                    .map(|range| (range.1 - range.0) as usize)
+                    .sum::<usize>();
+                let molecules = self.structure_len[molecule_id];
                 println!(
                     "Molecule #{} count {}/{}",
-                    molecule_id,
-                    self.structure_result[molecule_id]
-                        .iter()
-                        .map(|range| (range.1 - range.0) as usize)
-                        .sum::<usize>(),
-                    self.structure_len[molecule_id]
+                    molecule_id, visible_molecules, molecules
                 );
+
+                sum_visible_molecules += visible_molecules;
+                sum_molecules += molecules;
             }
+            println!("Total: {}/{}. Percentage: {}%.", sum_visible_molecules, sum_molecules, (sum_visible_molecules as f32 / sum_molecules as f32) * 100.0);
 
             self.recalculate = false;
         }
-
-        println!("{}", self.camera.distance());
     }
 
     pub fn device(&self) -> &Device {

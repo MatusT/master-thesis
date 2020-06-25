@@ -7,9 +7,7 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   vec4 position;
 };
 
-layout(set = 1, binding = 0, std430) buffer Positions {
-  vec4 positions[];
-};
+layout(set = 1, binding = 0, std430) buffer Positions { vec4 positions[]; };
 
 layout(set = 1, binding = 1, std430) buffer ModelMatrices {
   mat4 model_matrices[];
@@ -26,15 +24,42 @@ const vec2 vertices[3] = {
     vec2(0.0, 3.0),
 };
 
-uint hash(uint a)
-{
-   a = (a+0x7ed55d16) + (a<<12);
-   a = (a^0xc761c23c) ^ (a>>19);
-   a = (a+0x165667b1) + (a<<5);
-   a = (a+0xd3a2646c) ^ (a<<9);
-   a = (a+0xfd7046c5) + (a<<3);
-   a = (a^0xb55a4f09) ^ (a>>16);
-   return a;
+int vector_cube_face(vec3 v) {
+  v = normalize(v);
+  vec3 v_abs = abs(v);
+
+  if (v_abs.x > v_abs.y && v_abs.x > v_abs.z) {
+    // X major
+    if (v.x >= 0.0) {
+      return 0;
+    } else {
+      return 1;
+    }
+  } else if (v_abs.y > v_abs.z) {
+    // Y major
+    if (v.y >= 0.0) {
+      return 2;
+    } else {
+      return 3;
+    }
+  } else {
+    // Z major
+    if (v.z >= 0.0) {
+      return 4;
+    } else {
+      return 5;
+    }
+  }
+}
+
+uint hash(uint a) {
+  a = (a + 0x7ed55d16) + (a << 12);
+  a = (a ^ 0xc761c23c) ^ (a >> 19);
+  a = (a + 0x165667b1) + (a << 5);
+  a = (a + 0xd3a2646c) ^ (a << 9);
+  a = (a + 0xfd7046c5) + (a << 3);
+  a = (a ^ 0xb55a4f09) ^ (a >> 16);
+  return a;
 }
 
 void main() {
@@ -42,22 +67,25 @@ void main() {
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
   const mat4 model_matrix = model_matrices[gl_InstanceIndex];
-  const vec4 world_position = model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
+  const vec4 world_position =
+      model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
   scale = positions[gl_VertexIndex / 3].w;
 
   const vec2 vertex = scale * vertices[gl_VertexIndex % 3];
   const vec4 position_worldspace = vec4(
-      world_position.xyz +
-      vertex.x * camera_right +
-      vertex.y * camera_up, 1.0);
+      world_position.xyz + vertex.x * camera_right + vertex.y * camera_up, 1.0);
 
-	// uint mhash = hash(gl_InstanceIndex);
-	// color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
-  uint mhash = hash(gl_InstanceIndex / (model_matrices.length() / 6));
-  color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+  // uint mhash = hash(gl_InstanceIndex);
+  // color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >>
+  // 16) & 255)) / 255.0;
+  //   int face = vector_cube_face(model_matrix[3].xyz);
+  uint mhash = hash(gl_InstanceIndex / 2048);
+  color = vec3(float(mhash & 255), float((mhash >> 8) & 255),
+               float((mhash >> 16) & 255)) /
+          255.0;
   // color = vec3((gl_InstanceIndex * 10.0) / 25.0);
 
   uv = vertex;
-  position_clip_space = projection_view * position_worldspace;    
+  position_clip_space = projection_view * position_worldspace;
   gl_Position = position_clip_space;
 }

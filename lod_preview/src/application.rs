@@ -4,7 +4,7 @@ use crate::ApplicationEvent;
 
 use bytemuck::*;
 use nalgebra_glm::*;
-use rpdb_loader::*;
+use rpdb::*;
 use wgpu::*;
 
 pub struct Application {

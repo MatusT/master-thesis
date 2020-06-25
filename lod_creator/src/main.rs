@@ -96,12 +96,16 @@ fn main() {
 
             // Continue along the reduction ratios
             for reduction_ratio in current_ratio_index..ratios.len() {                
-                let new_centroids_num = (lods[0].atoms().len() as f32 * ratios[reduction_ratio]) as usize;
+                let mut new_centroids_num = (lods[0].atoms().len() as f32 * ratios[reduction_ratio]) as usize;
                 // println!("Current ratio: {}. New centroids: {}", ratios[reduction_ratio], new_centroids_num);
 
                 // End if It is not possible to reduce further
-                if new_centroids_num < 1 {
+                if new_centroids_num < 1 && lods.last().unwrap().atoms().len() == 1 {
                     break 'main;
+                }
+
+                if new_centroids_num < 1 {
+                    new_centroids_num = 1;
                 }
 
                 let new_means = kmeans::reduce(

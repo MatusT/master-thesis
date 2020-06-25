@@ -50,16 +50,23 @@ pub fn compress_ranges(list: Vec<(u32, u32)>, threshold: u32) -> Vec<(u32, u32)>
 pub fn reduce_visible(
     molecules_atoms: &[u32],
     mut molecules_ranges: Vec<Vec<(u32, u32)>>,
+    molecules_faces: &[[u32; 6]],
     limit: usize,
 ) -> Vec<Vec<(u32, u32)>> {
     let mut gaps = vec![Vec::new(); molecules_ranges.len()];
 
     // Find the gaps
     for (molecule_index, ranges) in molecules_ranges.iter().enumerate() {
-        for range_index in 1..ranges.len() {
+        'ranges: for range_index in 1..ranges.len() {
             let distance = ranges[range_index].0 - ranges[range_index - 1].1;
 
             if distance > 0 {
+                // Check that it doesn't cross faces
+                for face in molecules_faces[molecule_index].iter() {
+                    if *face >= ranges[range_index - 1].1 && *face <= ranges[range_index].0 {
+                        continue 'ranges;
+                    }
+                }
                 gaps[molecule_index].push((ranges[range_index - 1].1, ranges[range_index].0));
             }
         }
