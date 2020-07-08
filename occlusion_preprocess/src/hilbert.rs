@@ -82,13 +82,6 @@ pub fn intersect_inside_no(v: &Vec3) -> Vec3 {
     result
 }
 
-/// Converts (X, Y, Z) normalized cartesian coordinate to (φ, θ)/(azimuth, latitude) spherical coordinate
-fn cartesian_to_spherical(v: &Vec3) -> Vec2 {
-    let v = normalize(&v);
-
-    vec2(v[1].atan2(v[2]), v[2].acos())
-}
-
 /// Rotate/flip a quadrant appropriately
 fn rot(n: u32, x: &mut u32, y: &mut u32, rx: u32, ry: u32) {
     if ry == 0 {

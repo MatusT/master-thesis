@@ -5,7 +5,7 @@ use crate::pipelines::{LinesPipeline, SphereBillboardsDepthPipeline, SphereBillb
 use crate::ApplicationEvent;
 
 use bytemuck::*;
-use nalgebra_glm::{length, max2};
+use nalgebra_glm::{length, reversed_infinite_perspective_rh_zo};
 use rpdb::*;
 use std::convert::TryInto;
 use wgpu::*;
@@ -39,8 +39,6 @@ pub struct Application {
     multisampled_texture: TextureView,
 
     camera: RotationCamera,
-    camera_buffer: Buffer,
-    camera_bind_group: BindGroup,
 
     billboards_pipeline: SphereBillboardsPipeline,
     billboards_depth_pipeline: SphereBillboardsDepthPipeline,
@@ -82,19 +80,6 @@ impl Application {
         swapchain_format: TextureFormat,
         sample_count: u32,
     ) -> Self {
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                    BindingType::UniformBuffer {
-                        dynamic: false,
-                        min_binding_size: None,
-                    },
-                )],
-            });
-
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Molecule bind group layout"),
@@ -129,24 +114,27 @@ impl Application {
                 ],
             });
 
+        // Camera
+        let mut camera = RotationCamera::new(&device, &reversed_infinite_perspective_rh_zo(width as f32 / height as f32, 0.785398163, 0.1), 1500.0, 100.0);
+
         // Pipelines
         let billboards_pipeline =
-            SphereBillboardsPipeline::new(&device, &camera_bind_group_layout, sample_count);
+            SphereBillboardsPipeline::new(&device, camera.bind_group_layout(), sample_count);
         let billboards_depth_pipeline = SphereBillboardsDepthPipeline::new(
             &device,
-            &camera_bind_group_layout,
+            camera.bind_group_layout(),
             &per_molecule_bind_group_layout,
             sample_count,
             false,
         );
         let billboards_depth_write_pipeline = SphereBillboardsDepthPipeline::new(
             &device,
-            &camera_bind_group_layout,
+            camera.bind_group_layout(),
             &per_molecule_bind_group_layout,
             sample_count,
             true,
         );
-        let lines_pipeline = LinesPipeline::new(&device, &camera_bind_group_layout, sample_count);
+        let lines_pipeline = LinesPipeline::new(&device, camera.bind_group_layout(), sample_count);
 
         // Default framebuffer
         let depth_texture = device.create_texture(&TextureDescriptor {
@@ -318,24 +306,6 @@ impl Application {
 
         let structure_result = vec![Vec::new(); structure_len.len()];
 
-        // Camera
-        let mut camera = RotationCamera::new(width as f32 / height as f32, 0.785398163, 0.1);
-        let camera_buffer = device.create_buffer_with_data(
-            cast_slice(&[camera.ubo()]),
-            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-        );
-        camera.set_distance(2200.0);
-        camera.set_speed(100.0);
-
-        let camera_bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &camera_bind_group_layout,
-            bindings: &[Binding {
-                binding: 0,
-                resource: BindingResource::Buffer(camera_buffer.slice(0..!0)),
-            }],
-        });
-
         Self {
             width,
             height,
@@ -347,8 +317,6 @@ impl Application {
             multisampled_texture,
 
             camera,
-            camera_buffer,
-            camera_bind_group,
 
             billboards_pipeline,
             billboards_depth_pipeline,
@@ -406,21 +374,7 @@ impl Application {
             .create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         //================== CAMERA DATA UPLOAD
-        {
-            // self.camera.yaw += 1.0;
-            let size = std::mem::size_of::<CameraUbo>();
-            let camera_buffer = self
-                .device
-                .create_buffer_with_data(cast_slice(&[self.camera.ubo()]), BufferUsage::COPY_SRC);
-
-            encoder.copy_buffer_to_buffer(
-                &camera_buffer,
-                0,
-                &self.camera_buffer,
-                0,
-                size as BufferAddress,
-            );
-        }
+        self.camera.update_gpu(self.queue);
 
         //================== OCCLUSION
         if self.recalculate {

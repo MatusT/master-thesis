@@ -103,6 +103,7 @@ impl SphereBillboardsDepthPipeline {
         device: &Device,
         camera_bind_group_layout: &BindGroupLayout,
         per_molecule_bind_group_layout: &BindGroupLayout,
+        per_visibility_bind_group_layout: Option<&BindGroupLayout>,
         sample_count: u32,
         write_visibility: bool,
     ) -> Self {
@@ -115,8 +116,14 @@ impl SphereBillboardsDepthPipeline {
         };
 
         // Pipeline
+        let bind_group_layouts = if write_visibility { 
+            vec![camera_bind_group_layout, per_molecule_bind_group_layout, per_visibility_bind_group_layout.unwrap()]
+        } else {
+            vec![camera_bind_group_layout, per_molecule_bind_group_layout]
+        };
+        
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&camera_bind_group_layout, &per_molecule_bind_group_layout],
+            bind_group_layouts: &bind_group_layouts,
         });
 
         let depth_stencil_state = if write_visibility {

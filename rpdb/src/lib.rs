@@ -10,6 +10,15 @@ pub struct BoundingBox {
     pub max: Vec3,
 }
 
+impl BoundingBox {
+    pub fn union(&self, other: &BoundingBox) -> BoundingBox {
+        BoundingBox {
+            min: min2(&self.min, &other.min),
+            max: max2(&self.max, &other.max),
+        }
+    }
+}
+
 pub fn bounding_box(atoms: &[Vec4]) -> BoundingBox {
     let mut bb_max = vec3(
         std::f32::NEG_INFINITY,

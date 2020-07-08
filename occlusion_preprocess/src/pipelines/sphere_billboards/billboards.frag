@@ -7,10 +7,6 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   vec4 position;
 } camera;
 
-layout(set = 1, binding = 2, std430) buffer ModelMatrices {
-  int count[];
-};
-
 layout(location = 0) in vec2 uv;
 layout(location = 1) in vec4 position_clip_space;
 layout(location = 2) in flat float scale;
