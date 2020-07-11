@@ -1,44 +1,18 @@
 use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,
-    pub per_molecule_bind_group_layout: BindGroupLayout,
 }
 
 impl SphereBillboardsPipeline {
     pub fn new(
         device: &Device,
         camera_bind_group_layout: &BindGroupLayout,
+        per_molecule_bind_group_layout: &BindGroupLayout,
         sample_count: u32,
     ) -> Self {
         // Shaders
         let vs_module = device.create_shader_module(include_spirv!("billboards.vert.spv"));
         let fs_module = device.create_shader_module(include_spirv!("billboards.frag.spv"));
-
-        // Bind group layouts
-        let per_molecule_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Molecule bind group layout"),
-                bindings: &[
-                    BindGroupLayoutEntry::new(
-                        0,
-                        ShaderStage::VERTEX,
-                        BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                            min_binding_size: NonZeroBufferAddress::new(16),
-                        },
-                    ),
-                    BindGroupLayoutEntry::new(
-                        1,
-                        ShaderStage::VERTEX,
-                        BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                            min_binding_size: NonZeroBufferAddress::new(64),
-                        },
-                    ),
-                ],
-            });
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -89,7 +63,6 @@ impl SphereBillboardsPipeline {
 
         Self {
             pipeline,
-            per_molecule_bind_group_layout,
         }
     }
 }
@@ -116,12 +89,16 @@ impl SphereBillboardsDepthPipeline {
         };
 
         // Pipeline
-        let bind_group_layouts = if write_visibility { 
-            vec![camera_bind_group_layout, per_molecule_bind_group_layout, per_visibility_bind_group_layout.unwrap()]
+        let bind_group_layouts = if write_visibility {
+            vec![
+                camera_bind_group_layout,
+                per_molecule_bind_group_layout,
+                per_visibility_bind_group_layout.unwrap(),
+            ]
         } else {
             vec![camera_bind_group_layout, per_molecule_bind_group_layout]
         };
-        
+
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &bind_group_layouts,
         });

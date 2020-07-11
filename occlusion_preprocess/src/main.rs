@@ -54,6 +54,17 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
     let mut swap_chain = application.device().create_swap_chain(&surface, &sc_desc);
 
     event_loop.run(move |event, _, control_flow| {
+        // Have the closure take ownership of the resources.
+        // `event_loop.run` never returns, therefore we must do this to ensure
+        // the resources are properly cleaned up.
+        let _ = (
+            &instance,
+            &adapter,
+            &surface,
+            &swap_chain,
+            &application,
+        );
+
         *control_flow = ControlFlow::Poll;
         match event {
             // Process all the events

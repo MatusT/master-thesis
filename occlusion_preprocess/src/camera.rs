@@ -1,7 +1,7 @@
 use bytemuck::*;
 use nalgebra_glm as glm;
-use winit;
 use wgpu::*;
+use winit;
 
 use crate::ApplicationEvent;
 #[repr(C)]
@@ -15,7 +15,8 @@ pub struct CameraUbo {
 
 impl CameraUbo {
     pub fn size() -> std::num::NonZeroU64 {
-        std::num::NonZeroU64::new(std::mem::size_of::<Self>() as u64).expect("CameraUbo can't be zero.")
+        std::num::NonZeroU64::new(std::mem::size_of::<Self>() as u64)
+            .expect("CameraUbo can't be zero.")
     }
 }
 
@@ -23,10 +24,11 @@ unsafe impl Zeroable for CameraUbo {}
 unsafe impl Pod for CameraUbo {}
 pub trait Camera {
     fn update(&mut self, event: &ApplicationEvent);
-    fn update_gpu(&mut self, queue: Queue);
+    fn update_gpu(&mut self, queue: &Queue);
 
     fn ubo(&mut self) -> CameraUbo;
 
+    fn bind_group(&self) -> &BindGroup;
     fn bind_group_layout(&self) -> &BindGroupLayout;
 
     fn set_projection(&mut self, projection: &glm::Mat4);
@@ -47,10 +49,16 @@ pub struct RotationCamera {
 
     buffer: Buffer,
     bind_group_layout: BindGroupLayout,
+    bind_group: BindGroup,
 }
 
 impl RotationCamera {
-    pub fn new(device: &Device, projection: &glm::Mat4, distance: f32, speed: f32) -> RotationCamera {
+    pub fn new(
+        device: &Device,
+        projection: &glm::Mat4,
+        distance: f32,
+        speed: f32,
+    ) -> RotationCamera {
         let eye = distance * glm::vec3(distance, 0.0, 0.0);
         let view = glm::look_at(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         let projection_view = projection * view;
@@ -58,10 +66,15 @@ impl RotationCamera {
 
         let ubo = CameraUbo {
             projection: *projection,
-            view: glm::one(),
-            projection_view: glm::one(),
-            position: glm::zero(),
+            view,
+            projection_view,
+            position,
         };
+
+        let buffer = device.create_buffer_with_data(
+            cast_slice(&[ubo]),
+            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        );
 
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Camera bind group layout"),
@@ -75,10 +88,14 @@ impl RotationCamera {
             )],
         });
 
-        let buffer = device.create_buffer_with_data(
-            cast_slice(&[ubo]),
-            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-        );
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            layout: &bind_group_layout,
+            bindings: &[Binding {
+                binding: 0,
+                resource: BindingResource::Buffer(buffer.slice(..)),
+            }],
+            label: None,
+        });
 
         RotationCamera {
             ubo,
@@ -93,10 +110,11 @@ impl RotationCamera {
 
             buffer,
             bind_group_layout,
+            bind_group,
         }
     }
 
-    fn direction_vector(&self) -> glm::Vec3 {
+    pub fn direction_vector(&self) -> glm::Vec3 {
         let yaw = self.yaw.to_radians();
         let pitch = self.pitch.to_radians();
 
@@ -107,11 +125,11 @@ impl RotationCamera {
         )
     }
 
-    fn distance(&self) -> f32 {
+    pub fn distance(&self) -> f32 {
         self.distance
     }
 
-    fn set_distance(&mut self, distance: f32) {
+    pub fn set_distance(&mut self, distance: f32) {
         self.distance = distance;
     }
 }
@@ -148,16 +166,22 @@ impl Camera for RotationCamera {
         };
     }
 
-    fn update_gpu(&mut self, queue: Queue) {
-        queue.write_buffer(&self.buffer, 0, cast_slice(&[self.ubo]));
+    fn update_gpu(&mut self, queue: &Queue) {
+        let ubo = self.ubo();
+        queue.write_buffer(&self.buffer, 0, cast_slice(&[ubo]));
     }
 
     fn ubo(&mut self) -> CameraUbo {
         let eye = self.distance * self.direction_vector();
         self.ubo.view = glm::look_at(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         self.ubo.projection_view = self.ubo.projection * self.ubo.view;
+        self.ubo.position = glm::vec4(eye.x, eye.y, eye.z, 1.0);
 
         self.ubo
+    }
+
+    fn bind_group(&self) -> &BindGroup {
+        &self.bind_group
     }
 
     fn bind_group_layout(&self) -> &BindGroupLayout {
