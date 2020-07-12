@@ -61,9 +61,7 @@ impl SphereBillboardsPipeline {
             alpha_to_coverage_enabled: false,
         });
 
-        Self {
-            pipeline,
-        }
+        Self { pipeline }
     }
 }
 

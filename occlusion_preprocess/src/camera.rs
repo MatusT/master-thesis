@@ -29,7 +29,6 @@ pub trait Camera {
     fn ubo(&mut self) -> CameraUbo;
 
     fn bind_group(&self) -> &BindGroup;
-    fn bind_group_layout(&self) -> &BindGroupLayout;
 
     fn set_projection(&mut self, projection: &glm::Mat4);
 
@@ -48,13 +47,13 @@ pub struct RotationCamera {
     mouse_pressed: bool,
 
     buffer: Buffer,
-    bind_group_layout: BindGroupLayout,
     bind_group: BindGroup,
 }
 
 impl RotationCamera {
     pub fn new(
         device: &Device,
+        bind_group_layout: &BindGroupLayout,
         projection: &glm::Mat4,
         distance: f32,
         speed: f32,
@@ -75,18 +74,6 @@ impl RotationCamera {
             cast_slice(&[ubo]),
             BufferUsage::UNIFORM | BufferUsage::COPY_DST,
         );
-
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Camera bind group layout"),
-            bindings: &[BindGroupLayoutEntry::new(
-                0,
-                ShaderStage::all(),
-                BindingType::UniformBuffer {
-                    dynamic: false,
-                    min_binding_size: Some(CameraUbo::size()),
-                },
-            )],
-        });
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &bind_group_layout,
@@ -109,7 +96,6 @@ impl RotationCamera {
             mouse_pressed: false,
 
             buffer,
-            bind_group_layout,
             bind_group,
         }
     }
@@ -182,10 +168,6 @@ impl Camera for RotationCamera {
 
     fn bind_group(&self) -> &BindGroup {
         &self.bind_group
-    }
-
-    fn bind_group_layout(&self) -> &BindGroupLayout {
-        &self.bind_group_layout
     }
 
     fn set_projection(&mut self, projection: &glm::Mat4) {

@@ -6,16 +6,15 @@
 ///!      ^
 ///!      | has multiple
 ///! Vec<Structure>
-
 use bytemuck::cast_slice;
-use nalgebra_glm::{distance, normalize, ortho_rh_zo, vec2, vec3, zero, TVec2, Vec2, Vec3};
+use nalgebra_glm::{distance, length, normalize, ortho_rh_zo, vec2, vec3, zero, TVec2, Vec2, Vec3};
 use rpdb;
 use rpdb::BoundingBox;
 use rpdb::FromRon;
 use wgpu::*;
 
-use std::mem::size_of;
 use std::convert::TryInto;
+use std::mem::size_of;
 use std::rc::Rc;
 
 use crate::camera::*;
@@ -34,6 +33,9 @@ pub struct Molecule {
 
     /// Bounding box encompassing the molecule. Includes radii of atoms.
     bounding_box: BoundingBox,
+
+    ///
+    bounding_radius: f32,
 }
 
 impl Molecule {
@@ -57,10 +59,14 @@ impl Molecule {
 
         let atoms = device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE);
 
+        let bounding_box = *molecule.bounding_box();
+        let bounding_radius = distance(&bounding_box.max, &bounding_box.min) / 2.0;
+
         Self {
             atoms,
             lods,
-            bounding_box: *molecule.bounding_box(),
+            bounding_box,
+            bounding_radius,
         }
     }
 
@@ -88,9 +94,6 @@ pub struct Structure {
     /// For globular structures a split of translations of transformations into 6 faces of spherified cube.
     transforms_sides: Option<Vec<[u32; 6]>>,
 
-    ///
-    bind_group_layout: BindGroupLayout,
-
     /// Bind groups for each molecule type containing reference to `molecules` and `transforms`.
     bind_groups: Vec<BindGroup>,
 
@@ -102,7 +105,7 @@ pub struct Structure {
 }
 
 impl Structure {
-    pub fn from_ron<P: AsRef<std::path::Path>>(device: &Device, path: P) -> Self {
+    pub fn from_ron<P: AsRef<std::path::Path>>(device: &Device, path: P, per_molecule_bind_group_layout: &BindGroupLayout) -> Self {
         let structure_file = rpdb::structure::Structure::from_ron(&path);
 
         let mut molecules = Vec::new();
@@ -112,34 +115,7 @@ impl Structure {
 
         let mut bind_groups = Vec::new();
 
-        let mut bounding_box = BoundingBox {
-            min: zero(),
-            max: zero(),
-        };
-
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Molecule bind group layout"),
-            bindings: &[
-                BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::all(),
-                    BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: true,
-                        min_binding_size: None,
-                    },
-                ),
-                BindGroupLayoutEntry::new(
-                    1,
-                    ShaderStage::all(),
-                    BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: true,
-                        min_binding_size: None,
-                    },
-                ),
-            ],
-        });
+        let mut bounding_radius: f32 = 0.0;
 
         for (molecule_name, molecule_model_matrices) in structure_file.molecules {
             let new_molecule =
@@ -151,6 +127,7 @@ impl Structure {
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
                 for molecule_model_matrix in molecule_model_matrices {
+                    bounding_radius = bounding_radius.max(length(&molecule_model_matrix.column(3).xyz()) + new_molecule.bounding_radius);
                     matrices_flat.append(&mut molecule_model_matrix.as_slice().to_owned());
                 }
 
@@ -169,7 +146,7 @@ impl Structure {
 
             bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
-                layout: &bind_group_layout,
+                layout: &per_molecule_bind_group_layout,
                 bindings: &[
                     Binding {
                         binding: 0,
@@ -182,18 +159,18 @@ impl Structure {
                 ],
             }));
 
-            bounding_box = bounding_box.union(&new_molecule.bounding_box());
-
             molecules.push(new_molecule);
         }
 
-        let bounding_radius = distance(&bounding_box.max, &bounding_box.min) / 2.0;
+        let bounding_box = BoundingBox {
+            min: vec3(-bounding_radius, -bounding_radius, -bounding_radius),
+            max: vec3(bounding_radius, bounding_radius, bounding_radius),
+        };
 
         Self {
             molecules,
             transforms,
             transforms_sides: Some(transforms_sides),
-            bind_group_layout,
             bind_groups,
             bounding_box,
             bounding_radius,
@@ -206,10 +183,6 @@ impl Structure {
 
     pub fn transforms(&self) -> &[(Buffer, usize)] {
         &self.transforms
-    }
-
-    pub fn bind_group_layout(&self) -> &BindGroupLayout {
-        &self.bind_group_layout
     }
 
     pub fn bind_groups(&self) -> &[BindGroup] {
@@ -269,13 +242,17 @@ pub struct StructurePvsModule {
 }
 
 impl StructurePvsModule {
-    pub fn new(device: &Device, per_molecule_bind_group_layout: &BindGroupLayout) -> Self {
+    pub fn new(
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        per_molecule_bind_group_layout: &BindGroupLayout,
+    ) -> Self {
         let depth = device
             .create_texture(&TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: 512,
-                    height: 512,
+                    width: 1024,
+                    height: 1024,
                     depth: 1,
                 },
                 mip_level_count: 1,
@@ -285,19 +262,6 @@ impl StructurePvsModule {
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
             })
             .create_default_view();
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::all(),
-                    BindingType::UniformBuffer {
-                        dynamic: false,
-                        min_binding_size: Some(CameraUbo::size()),
-                    },
-                )],
-            });
 
         let per_visibility_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -315,17 +279,17 @@ impl StructurePvsModule {
 
         let pipeline = SphereBillboardsDepthPipeline::new(
             &device,
-            &camera_bind_group_layout,
-            &per_molecule_bind_group_layout,
-            Some(&per_visibility_bind_group_layout),
+            camera_bind_group_layout,
+            per_molecule_bind_group_layout,
+            None,
             1,
             false,
         );
 
         let pipeline_write = SphereBillboardsDepthPipeline::new(
             &device,
-            &camera_bind_group_layout,
-            &per_molecule_bind_group_layout,
+            camera_bind_group_layout,
+            per_molecule_bind_group_layout,
             Some(&per_visibility_bind_group_layout),
             1,
             true,
@@ -343,6 +307,7 @@ impl StructurePvsModule {
     pub fn pvs_field(
         self: &Rc<StructurePvsModule>,
         device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
         structure: Rc<Structure>,
         step: u32,
         ranges_limit: usize,
@@ -351,17 +316,19 @@ impl StructurePvsModule {
         let sets = vec![None; (views_per_circle * views_per_circle) as usize];
 
         let r = structure.bounding_radius();
-        let projection = ortho_rh_zo(-r, r, -r, r, 0.0, r * 2.0);
-        let camera = RotationCamera::new(device, &projection, r * 2.0, 0.0);
+        let projection = ortho_rh_zo(-r, r, -r, r, r, -r * 2.0);
+        let camera = RotationCamera::new(device, camera_bind_group_layout, &projection, r, 0.0);
 
         let mut visible = Vec::new();
         let mut visible_staging = Vec::new();
         let mut visible_bind_groups = Vec::new();
 
+        let mut max_size = 0;
         for i in 0..structure.molecules.len() {
+            max_size = max_size.max(structure.transforms[i].1);
             visible.push(device.create_buffer_with_data(
                 cast_slice(&vec![0i32; structure.transforms[i].1]),
-                BufferUsage::STORAGE | BufferUsage::COPY_SRC,
+                BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
             ));
             visible_staging.push(device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
@@ -379,6 +346,11 @@ impl StructurePvsModule {
             }));
         }
 
+        let zero_buffer = device.create_buffer_with_data(
+            cast_slice(&vec![0i32; max_size]),
+            BufferUsage::STORAGE | BufferUsage::COPY_SRC,
+        );
+
         StructurePvsField {
             module: Rc::clone(&self),
             structure: Rc::clone(&structure),
@@ -392,6 +364,8 @@ impl StructurePvsModule {
             visible,
             visible_staging,
             visible_bind_groups,
+
+            zero_buffer,
         }
     }
 }
@@ -440,8 +414,10 @@ pub struct StructurePvsField {
 
     ///
     visible_bind_groups: Vec<BindGroup>,
-}
 
+    ///
+    zero_buffer: Buffer,
+}
 
 impl StructurePvsField {
     /// Computes potentially visible sets from all possible polar coordinates given by `step`.
@@ -454,16 +430,23 @@ impl StructurePvsField {
     }
 
     /// Returns potentially visible set from the given viewpoint.
-    pub fn at_coordinates(&mut self, device: &Device, queue: &Queue, spherical_coords: TVec2<u32>) -> &StructurePvs {
+    pub fn at_coordinates(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        spherical_coords: TVec2<u32>,
+    ) -> &StructurePvs {
         assert!(spherical_coords.x % self.step == 0);
-        assert!(spherical_coords.y % self.step == 0);
+        assert!(spherical_coords.y % self.step == 0);       
 
         let steps = 360 / self.step;
-        let index = (spherical_coords.x * steps + spherical_coords.y) as usize;
+        // println!("{:?}", spherical_coords.y % 360);
+        let index =
+            (((spherical_coords.x % 360) / self.step) * steps + ((spherical_coords.y % 360) / self.step)) as usize;
 
-        if self.sets[index].is_some() {
-            return self.sets[index].as_ref().unwrap();
-        }
+        // if self.sets[index].is_some() {
+        //     return self.sets[index].as_ref().unwrap();
+        // }
 
         let mut visible = Vec::new();
 
@@ -471,26 +454,37 @@ impl StructurePvsField {
         self.camera.yaw = (spherical_coords.x as f32).to_radians();
         self.camera.pitch = (spherical_coords.y as f32).to_radians();
 
-        let mut encoder = device
-            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+
+        self.camera.update_gpu(queue);
+
+        //-- Clear the visibility data from the device buffers
+        for molecule_id in 0..self.structure.molecules.len() {
+            encoder.copy_buffer_to_buffer(
+                &self.zero_buffer,
+                0,
+                &self.visible[molecule_id],
+                0,
+                (self.structure.transforms[molecule_id].1 * size_of::<i32>())
+                    as BufferAddress,
+            );
+        }
 
         //-- Draw the depth buffer
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[],
-                depth_stencil_attachment: Some(
-                    RenderPassDepthStencilAttachmentDescriptor {
-                        attachment: &self.module.depth,
-                        depth_load_op: LoadOp::Clear,
-                        depth_store_op: StoreOp::Store,
-                        stencil_load_op: LoadOp::Clear,
-                        stencil_store_op: StoreOp::Store,
-                        clear_depth: 0.0,
-                        clear_stencil: 0,
-                        stencil_read_only: true,
-                        depth_read_only: false,
-                    },
-                ),
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.module.depth,
+                    depth_load_op: LoadOp::Clear,
+                    depth_store_op: StoreOp::Store,
+                    stencil_load_op: LoadOp::Clear,
+                    stencil_store_op: StoreOp::Store,
+                    clear_depth: 0.0,
+                    clear_stencil: 0,
+                    stencil_read_only: true,
+                    depth_read_only: false,
+                }),
             });
 
             rpass.set_pipeline(&self.module.pipeline.pipeline);
@@ -560,21 +554,20 @@ impl StructurePvsField {
             let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
             device.poll(Maintain::Wait);
 
-            let visible_cpu: Vec<u32> =
-                if let Ok(()) = futures::executor::block_on(buffer_future) {
-                    let data = buffer_slice.get_mapped_range();
-                    let result = data
-                        .chunks_exact(4)
-                        .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
-                        .collect();
+            let visible_cpu: Vec<u32> = if let Ok(()) = futures::executor::block_on(buffer_future) {
+                let data = buffer_slice.get_mapped_range();
+                let result = data
+                    .chunks_exact(4)
+                    .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+                    .collect();
 
-                    drop(data);
-                    self.visible_staging[molecule_id].unmap();
+                drop(data);
+                self.visible_staging[molecule_id].unmap();
 
-                    result
-                } else {
-                    panic!("failed to run on gpu!")
-                };
+                result
+            } else {
+                panic!("failed to run on gpu!")
+            };
 
             self.visible_staging[molecule_id].unmap();
 
@@ -585,12 +578,12 @@ impl StructurePvsField {
                 .collect::<Vec<u32>>();
             tmp.sort();
 
+            // println!("{}/{}", tmp.len(), visible_cpu.len());
+
             visible.push(list_to_ranges(&tmp));
         }
 
-        self.sets[index] = Some(StructurePvs {
-            visible
-        }); 
+        self.sets[index] = Some(StructurePvs { visible });
         self.reduce(index);
 
         self.sets[index].as_ref().unwrap()
@@ -598,12 +591,12 @@ impl StructurePvsField {
 
     /// Returns potentially visible set from the given viewpoint.
     pub fn pvs_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> &StructurePvs {
-        let spherical_coords = cartesian_to_spherical(&eye).apply_into(|e| e.to_degrees().round());
+        let spherical_coords = cartesian_to_spherical(&eye).apply_into(|e| (e.to_degrees().round() + 180.0) % 360.0);
 
         // Snap spherical coordinates to the closest view given by step size.
         let spherical_coords = TVec2::new(
             ((spherical_coords[0] as u32 + self.step - 1) / self.step) * self.step,
-            ((spherical_coords[0] as u32 + self.step - 1) / self.step) * self.step,
+            ((spherical_coords[1] as u32 + self.step - 1) / self.step) * self.step,
         );
 
         self.at_coordinates(device, queue, spherical_coords)
@@ -618,12 +611,14 @@ impl StructurePvsField {
         for (molecule_index, ranges) in pvs.visible.iter().enumerate() {
             'ranges: for range_index in 1..ranges.len() {
                 let distance = ranges[range_index].0 - ranges[range_index - 1].1;
-    
+
                 // If we find a gap
                 if distance > 0 {
                     // Check that it doesn't cross faces
                     // - potentially large range
-                    for face in self.structure.transforms_sides.as_ref().unwrap()[molecule_index].iter() {
+                    for face in
+                        self.structure.transforms_sides.as_ref().unwrap()[molecule_index].iter()
+                    {
                         if *face >= ranges[range_index - 1].1 && *face <= ranges[range_index].0 {
                             continue 'ranges;
                         }
@@ -631,16 +626,16 @@ impl StructurePvsField {
                     gaps[molecule_index].push((ranges[range_index - 1].1, ranges[range_index].0));
                 }
             }
-    
+
             // Sort the gaps by their length in decreasing order
             gaps[molecule_index].sort_by(|a, b| {
                 let a_distance = a.1 - a.0;
                 let b_distance = b.1 - b.1;
-    
+
                 b_distance.cmp(&a_distance)
             });
         }
-    
+
         // Compute how many ranges we have in total across all molecule types
         let mut ranges_num: usize = pvs.visible.iter().map(|v| v.len()).sum();
 
@@ -652,11 +647,13 @@ impl StructurePvsField {
             let mut min_index = 0;
             for (molecule_index, gaps) in gaps.iter().enumerate() {
                 if let Some(gap) = gaps.last() {
-                    let atoms_count = (self.structure.molecules[molecule_index].lods[0].1.end - self.structure.molecules[molecule_index].lods[0].1.start) / 3;
+                    let atoms_count = (self.structure.molecules[molecule_index].lods[0].1.end
+                        - self.structure.molecules[molecule_index].lods[0].1.start)
+                        / 3;
                     let distance = gap.1 - gap.0;
 
                     let cost = distance * atoms_count;
-    
+
                     if cost < min_cost {
                         min_gap = Some(gap);
                         min_cost = cost;
@@ -664,7 +661,7 @@ impl StructurePvsField {
                     }
                 }
             }
-    
+
             // Add the found smallest gap to the list of ranges
             if let Some(gap) = min_gap {
                 pvs.visible[min_index].push(*gap);
@@ -674,11 +671,50 @@ impl StructurePvsField {
                 panic!("Somethin went wrong");
             }
         }
-    
+
         // To reduce the list, the ranges are sorted and merged together
         for i in 0..self.visible.len() {
             pvs.visible[i].sort_by(|a, b| a.0.cmp(&b.0));
             pvs.visible[i] = compress_ranges(pvs.visible[i].clone(), 0);
+        }
+    }
+
+    pub fn draw<'a>(
+        &'a mut self,
+        device: &Device,
+        queue: &Queue,
+        rpass: &mut RenderPass<'a>,
+        eye: Vec3,
+    ) {
+        let spherical_coords = cartesian_to_spherical(&eye).apply_into(|e| (e.to_degrees().round() + 180.0) % 360.0);
+
+        // Snap spherical coordinates to the closest view given by step size.
+        let spherical_coords = TVec2::new(
+            (((spherical_coords[0] as u32 + self.step - 1) / self.step) * self.step) % 360,
+            (((spherical_coords[1] as u32 + self.step - 1) / self.step) * self.step) % 360,
+        );
+
+        assert!(spherical_coords.x % self.step == 0);
+        assert!(spherical_coords.y % self.step == 0);
+
+        let steps = 360 / self.step;
+        let index =
+            ((spherical_coords.x / self.step) * steps + (spherical_coords.y / self.step)) as usize;
+
+        // if self.sets[index].is_none() {
+            self.pvs_from_eye(device, queue, eye);
+        // }
+
+        let pvs = self.sets[index].as_ref().unwrap();
+
+        for molecule_id in 0..self.structure.molecules().len() {
+            rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+
+            for range in pvs.visible[molecule_id].iter() {
+                let start = self.structure.molecules()[molecule_id].lods()[0].1.start;
+                let end = self.structure.molecules()[molecule_id].lods()[0].1.end;
+                rpass.draw(start..end, range.0..range.1);
+            }
         }
     }
 }

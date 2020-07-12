@@ -82,35 +82,56 @@ pub fn intersect_inside_no(v: &Vec3) -> Vec3 {
     result
 }
 
-/// Rotate/flip a quadrant appropriately
-fn rot(n: u32, x: &mut u32, y: &mut u32, rx: u32, ry: u32) {
-    if ry == 0 {
-        if rx == 1 {
-            *x = n - 1 - *x;
-            *y = n - 1 - *y;
-        }
+/// Convert a one-dimensional distance `d` to a pair of (x, y) coordinates.
+pub fn convert_1d_to_2d(d: usize, n: usize) -> (usize, usize) {
+    assert!((n & (n - 1)) == 0, "n must be a power of 2");
+    let mut s = 1;
+    let mut t = d;
+    let (mut x, mut y) = (0, 0);
+    let (mut rx, mut ry);
 
-        //Swap x and y
-        let t = *x;
-        *x = *y;
-        *y = t;
+    while s < n {
+        rx = 1 & (t / 2);
+        ry = 1 & (t ^ rx);
+        rotate(s, &mut x, &mut y, rx, ry);
+        x += s * rx;
+        y += s * ry;
+        t /= 4;
+        s *= 2;
     }
+
+    (x, y)
 }
 
-/// Converts (X, Y) coordinates to hilbert index
-pub fn hilbert_xy_to_d(n: u32, mut x: u32, mut y: u32) -> u32 {
+/// Convert a pair of (x, y) coordinates to a one-dimensional distance.
+pub fn convert_2d_to_1d(x: usize, y: usize, n: usize) -> usize {
+    assert!((n & (n - 1)) == 0, "n must be a power of 2");
     let mut d = 0;
     let mut s = n / 2;
-    while s > 0 {
-        let rx = ((x & s) > 0) as u32;
-        let ry = ((y & s) > 0) as u32;
-        d += s * s * ((3 * rx) ^ ry);
-        rot(n, &mut x, &mut y, rx, ry);
+    let (mut x, mut y) = (x, y);
+    let (mut rx, mut ry);
 
-        s /= 2;
+    while s > 0 {
+        rx = if (x & s) > 0 { 1 } else { 0 };
+        ry = if (y & s) > 0 { 1 } else { 0 };
+        d += s * s * ((3 * rx) ^ ry);
+        rotate(s, &mut x, &mut y, rx, ry);
+        s /= 2
     }
 
-    return d;
+    d
+}
+
+// Rotate a quadrant
+fn rotate(n: usize, x: &mut usize, y: &mut usize, rx: usize, ry: usize) {
+    if ry == 0 {
+        if rx == 1 {
+            *x = n.wrapping_sub(1).wrapping_sub(*x);
+            *y = n.wrapping_sub(1).wrapping_sub(*y);
+        }
+
+        std::mem::swap(x, y);
+    }
 }
 
 pub fn vector_to_xy_face(v: &Vec3) -> (Vec2, CubeFace) {
@@ -128,11 +149,9 @@ pub fn vector_to_xy_face(v: &Vec3) -> (Vec2, CubeFace) {
 }
 
 /// n - dimension of the curve
-pub fn vector_to_hilbert_face(n: u32, v: &Vec3) -> (u32, CubeFace) {
+pub fn vector_to_hilbert_face(n: usize, v: &Vec3) -> (usize, CubeFace) {
     // Find the intersection on the cube
     let (xy, face) = vector_to_xy_face(v);
-
-    // println!("{:?} {:?}", v, xy);
 
     assert!(xy[0] >= -1.0);
     assert!(xy[0] >= -1.0);
@@ -140,11 +159,14 @@ pub fn vector_to_hilbert_face(n: u32, v: &Vec3) -> (u32, CubeFace) {
     assert!(xy[1] <= 1.0);
 
     // Map to integer dimension
-    let x = ((xy[0] + 1.0) * (n / 2) as f32).round() as u32;
-    let y = ((xy[1] + 1.0) * (n / 2) as f32).round() as u32;
+    let x = ((xy[0] + 1.0) * (n / 2) as f32).round() as usize;
+    let y = ((xy[1] + 1.0) * (n / 2) as f32).round() as usize;
+
+    assert!(x <= n * n - 1);
+    assert!(y <= n * n - 1);
 
     // Map to hilbert curve on the face
-    let hilbert = hilbert_xy_to_d(n, x, y);
+    let hilbert = convert_2d_to_1d(x, y, n);
 
     (hilbert, face)
 }
@@ -158,7 +180,7 @@ pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>, [u
     for m in matrices {
         let translation = m.column(3).xyz();
 
-        let (d, face) = vector_to_hilbert_face(n as u32, &translation);
+        let (d, face) = vector_to_hilbert_face(n as usize, &translation);
 
         faces[face as usize][d as usize].push(*m);
     }

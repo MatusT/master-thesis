@@ -1,7 +1,7 @@
+use crate::biological_structure::*;
 use crate::camera::*;
 use crate::pipelines::{LinesPipeline, SphereBillboardsPipeline};
 use crate::ApplicationEvent;
-use crate::biological_structure::*;
 
 use nalgebra_glm::reversed_infinite_perspective_rh_zo;
 use wgpu::*;
@@ -19,6 +19,7 @@ pub struct Application {
     multisampled_texture: TextureView,
 
     camera: RotationCamera,
+    camera_bind_group_layout: BindGroupLayout,
 
     billboards_pipeline: SphereBillboardsPipeline,
 
@@ -38,27 +39,27 @@ impl Application {
         swapchain_format: TextureFormat,
         sample_count: u32,
     ) -> Self {
-        // Camera
-        let camera = RotationCamera::new(
-            &device,
-            &reversed_infinite_perspective_rh_zo(width as f32 / height as f32, 0.785398163, 0.1),
-            1500.0,
-            100.0,
-        );
+        // Shared bind group layouts
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Camera bind group layout"),
+                bindings: &[BindGroupLayoutEntry::new(
+                    0,
+                    ShaderStage::all(),
+                    BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(CameraUbo::size()),
+                    },
+                )],
+            });
 
-        // Data
-        let args: Vec<String> = std::env::args().collect();
-
-        let structure = Rc::new(Structure::from_ron(&device, &args[1]));
-
-        // Pipelines
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Molecule bind group layout"),
                 bindings: &[
                     BindGroupLayoutEntry::new(
                         0,
-                        ShaderStage::VERTEX,
+                        ShaderStage::all(),
                         BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
@@ -67,7 +68,7 @@ impl Application {
                     ),
                     BindGroupLayoutEntry::new(
                         1,
-                        ShaderStage::VERTEX,
+                        ShaderStage::all(),
                         BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
@@ -77,8 +78,27 @@ impl Application {
                 ],
             });
 
-        let billboards_pipeline =
-            SphereBillboardsPipeline::new(&device, camera.bind_group_layout(), structure.bind_group_layout(), sample_count);
+        // Camera
+        let camera = RotationCamera::new(
+            &device,
+            &camera_bind_group_layout,
+            &reversed_infinite_perspective_rh_zo(width as f32 / height as f32, 0.785398163, 0.1),
+            1500.0,
+            100.0,
+        );
+
+        // Data
+        let args: Vec<String> = std::env::args().collect();
+
+        let structure = Rc::new(Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout));
+
+        // Pipelines
+        let billboards_pipeline = SphereBillboardsPipeline::new(
+            &device,
+            &camera_bind_group_layout,
+            &per_molecule_bind_group_layout,
+            sample_count,
+        );
 
         // Default framebuffer
         let depth_texture = device
@@ -112,9 +132,13 @@ impl Application {
                 label: None,
             })
             .create_default_view();
-       
-        let pvs_module = Rc::new(StructurePvsModule::new(&device, &per_molecule_bind_group_layout));
-        let pvs_field = pvs_module.pvs_field(&device, structure.clone(), 15, 128);
+
+        let pvs_module = Rc::new(StructurePvsModule::new(
+            &device,
+            &camera_bind_group_layout,
+            &per_molecule_bind_group_layout,
+        ));
+        let pvs_field = pvs_module.pvs_field(&device, &camera_bind_group_layout, structure.clone(), 15, 128);
 
         Self {
             width,
@@ -127,6 +151,7 @@ impl Application {
             multisampled_texture,
 
             camera,
+            camera_bind_group_layout,
 
             billboards_pipeline,
 
@@ -183,7 +208,14 @@ impl Application {
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
             let distance = self.camera.distance() - self.structure.bounding_radius();
-            self.structure.draw_lod(&mut rpass, distance);
+
+            // self.structure.draw_lod(&mut rpass, distance);
+            self.pvs_field.draw(
+                &self.device,
+                &self.queue,
+                &mut rpass,
+                self.camera.direction_vector(),
+            );
         }
 
         self.queue.submit(Some(encoder.finish()));

@@ -26,17 +26,6 @@ const vec2 vertices[3] = {
     vec2(0.0, 3.0),
 };
 
-uint hash(uint a)
-{
-   a = (a+0x7ed55d16) + (a<<12);
-   a = (a^0xc761c23c) ^ (a>>19);
-   a = (a+0x165667b1) + (a<<5);
-   a = (a+0xd3a2646c) ^ (a<<9);
-   a = (a+0xfd7046c5) + (a<<3);
-   a = (a^0xb55a4f09) ^ (a>>16);
-   return a;
-}
-
 void main(void) {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);

@@ -18,11 +18,12 @@ layout(early_fragment_tests) in;
 
 void main(void) {
   const float len = length(uv);
-
-// #ifdef WRITE_VISIBILITY
   if (length(uv) > scale) {
     discard;
   }
+  
+// #ifdef WRITE_VISIBILITY
+
 // #else 
 //   discard;
 //   // if (length(uv) > 0.5 * scale) {
