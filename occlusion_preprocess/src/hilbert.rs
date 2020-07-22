@@ -199,38 +199,3 @@ pub fn sort_by_hilbert(matrices: &[Mat4]) -> (Vec<Mat4>, Vec<Vec<Vec<Mat4>>>, [u
 
     (new_order, faces, faces_starts)
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn vector_cube_face() {
-        use super::{vector_cube_face, CubeFace};
-        use nalgebra_glm::vec3;
-
-        assert!(vector_cube_face(&vec3(1.0, 0.0, 0.0)) == CubeFace::Right);
-        assert!(vector_cube_face(&vec3(-1.0, 0.0, 0.0)) == CubeFace::Left);
-        assert!(vector_cube_face(&vec3(0.0, 0.0, 1.0)) == CubeFace::Front);
-        assert!(vector_cube_face(&vec3(0.0, 0.0, -1.0)) == CubeFace::Back);
-        assert!(vector_cube_face(&vec3(0.0, 1.0, 0.0)) == CubeFace::Top);
-        assert!(vector_cube_face(&vec3(0.0, -1.0, 0.0)) == CubeFace::Bottom);
-    }
-
-    #[test]
-    fn intersect_inside_no() {
-        use super::intersect_inside_no;
-        use nalgebra_glm::vec3;
-
-        assert_eq!(
-            intersect_inside_no(&vec3(10.0, 10.0, 10.0)),
-            vec3(1.0, 1.0, 1.0)
-        );
-        assert_eq!(
-            intersect_inside_no(&vec3(-1.0, -1.0, -1.0)),
-            vec3(-1.0, -1.0, -1.0)
-        );
-        assert_eq!(
-            intersect_inside_no(&vec3(1000.0, 0.0, 0.0)),
-            vec3(1.0, 0.0, 0.0)
-        );
-    }
-}

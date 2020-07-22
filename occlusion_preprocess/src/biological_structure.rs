@@ -7,7 +7,7 @@
 ///!      | has multiple
 ///! Vec<Structure>
 use bytemuck::cast_slice;
-use nalgebra_glm::{distance, length, normalize, ortho_rh_zo, vec2, vec3, zero, TVec2, Vec2, Vec3};
+use nalgebra_glm::{distance, length, normalize, ortho_rh_zo, vec2, vec3, TVec2, Vec2, Vec3};
 use rpdb;
 use rpdb::BoundingBox;
 use rpdb::FromRon;
@@ -105,7 +105,11 @@ pub struct Structure {
 }
 
 impl Structure {
-    pub fn from_ron<P: AsRef<std::path::Path>>(device: &Device, path: P, per_molecule_bind_group_layout: &BindGroupLayout) -> Self {
+    pub fn from_ron<P: AsRef<std::path::Path>>(
+        device: &Device,
+        path: P,
+        per_molecule_bind_group_layout: &BindGroupLayout,
+    ) -> Self {
         let structure_file = rpdb::structure::Structure::from_ron(&path);
 
         let mut molecules = Vec::new();
@@ -127,7 +131,10 @@ impl Structure {
             let molecule_model_matrices = {
                 let mut matrices_flat: Vec<f32> = Vec::new();
                 for molecule_model_matrix in molecule_model_matrices {
-                    bounding_radius = bounding_radius.max(length(&molecule_model_matrix.column(3).xyz()) + new_molecule.bounding_radius);
+                    bounding_radius = bounding_radius.max(
+                        length(&molecule_model_matrix.column(3).xyz())
+                            + new_molecule.bounding_radius,
+                    );
                     matrices_flat.append(&mut molecule_model_matrix.as_slice().to_owned());
                 }
 
@@ -316,7 +323,7 @@ impl StructurePvsModule {
         let sets = vec![None; (views_per_circle * views_per_circle) as usize];
 
         let r = structure.bounding_radius();
-        let projection = ortho_rh_zo(-r, r, -r, r, r, -r * 2.0);
+        let projection = ortho_rh_zo(-r, r, -r, r, r * 2.0, -r * 2.0);
         let camera = RotationCamera::new(device, camera_bind_group_layout, &projection, r, 0.0);
 
         let mut visible = Vec::new();
@@ -374,14 +381,17 @@ impl StructurePvsModule {
 pub fn cartesian_to_spherical(v: &Vec3) -> Vec2 {
     let v = normalize(&v);
 
-    vec2(v[0].atan2(v[1]), v[2].acos())
+    vec2(v[2].atan2(v[0]), v[1].atan())
 }
 
 /// Converts (φ, θ)/(azimuth, latitude) spherical coordinates to (X, Y, Z) normalized cartesian coordinates
 pub fn spherical_to_cartesian(v: &Vec2) -> Vec3 {
-    let x = v[0].sin() * v[1].cos();
-    let y = v[0].sin() * v[1].sin();
-    let z = v[0].cos();
+    let yaw = v[0];
+    let pitch = v[1];
+
+    let x = yaw.cos() * pitch.cos();
+    let y = pitch.sin();
+    let z = yaw.sin() * pitch.cos();
 
     vec3(x, y, z)
 }
@@ -420,57 +430,82 @@ pub struct StructurePvsField {
 }
 
 impl StructurePvsField {
-    /// Computes potentially visible sets from all possible polar coordinates given by `step`.
-    pub fn compute_all(&mut self) {
-        // for azimuth in (0..360).step_by(self.step) {
-        //     for latitude in (0..360).step_by(self.step) {
+    fn spherical_to_snapped(&self, spherical_coords: Vec2) -> TVec2<u32> {
+        // Convert spherical coordinates to degrees and modulo them into the range of 0-360.
+        let snapped_coords =
+            spherical_coords.apply_into(|e| ((e.to_degrees().round() % 360.0) + 360.0) % 360.0);
 
-        //     }
-        // }
+        // Snap spherical coordinates to the closest view given by step size.
+        let snapped_coords = TVec2::new(
+            (((snapped_coords[0] as u32 + self.step - 1) / self.step) * self.step) % 360,
+            (((snapped_coords[1] as u32 + self.step - 1) / self.step) * self.step) % 360,
+        );
+
+        snapped_coords
     }
 
-    /// Returns potentially visible set from the given viewpoint.
-    pub fn at_coordinates(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        spherical_coords: TVec2<u32>,
-    ) -> &StructurePvs {
-        assert!(spherical_coords.x % self.step == 0);
-        assert!(spherical_coords.y % self.step == 0);       
+    fn spherical_to_index(&self, spherical_coords: Vec2) -> usize {
+        self.snapped_to_index(self.spherical_to_snapped(spherical_coords))
+    }
+
+    fn snapped_to_spherical(&self, snapped_coords: TVec2<u32>) -> Vec2 {
+        // Conver to floating point radians.
+        let spherical_coords = vec2(
+            (snapped_coords.x as f32).to_radians(),
+            (snapped_coords.y as f32).to_radians(),
+        );
+
+        spherical_coords
+    }
+
+    fn snapped_to_index(&self, snapped_coords: TVec2<u32>) -> usize {
+        assert!(snapped_coords.x < 360);
+        assert!(snapped_coords.y < 360);
+        assert!(snapped_coords.x % self.step == 0);
+        assert!(snapped_coords.y % self.step == 0);
 
         let steps = 360 / self.step;
-        // println!("{:?}", spherical_coords.y % 360);
-        let index =
-            (((spherical_coords.x % 360) / self.step) * steps + ((spherical_coords.y % 360) / self.step)) as usize;
 
-        // if self.sets[index].is_some() {
-        //     return self.sets[index].as_ref().unwrap();
-        // }
+        ((snapped_coords.x / self.step) * steps + (snapped_coords.y / self.step)) as usize
+    }
 
+    fn index_to_snapped(&self, index: usize) -> TVec2<u32> {
+        let index = index as u32;
+        let steps = 360 / self.step;
+
+        vec2((index / steps) * self.step, (index % steps) * self.step)
+    }
+
+    fn index_to_spherical(&self, index: usize) -> Vec2 {
+        self.snapped_to_spherical(self.index_to_snapped(index))
+    }
+
+    pub fn compute(&mut self, device: &Device, queue: &Queue, index: usize) {
         let mut visible = Vec::new();
 
-        //-- Configure camera
-        self.camera.yaw = (spherical_coords.x as f32).to_radians();
-        self.camera.pitch = (spherical_coords.y as f32).to_radians();
+        // Configure camera
+        let spherical_coords = self.index_to_spherical(index);
+        self.camera
+            .set_yaw(spherical_coords.x as f32);
+        self.camera
+            .set_pitch(spherical_coords.y as f32);
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         self.camera.update_gpu(queue);
 
-        //-- Clear the visibility data from the device buffers
+        // Clear the visibility data from the device buffers
         for molecule_id in 0..self.structure.molecules.len() {
             encoder.copy_buffer_to_buffer(
                 &self.zero_buffer,
                 0,
                 &self.visible[molecule_id],
                 0,
-                (self.structure.transforms[molecule_id].1 * size_of::<i32>())
-                    as BufferAddress,
+                (self.structure.transforms[molecule_id].1 * size_of::<i32>()) as BufferAddress,
             );
         }
 
-        //-- Draw the depth buffer
+        // Draw the depth buffer
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[],
@@ -501,23 +536,21 @@ impl StructurePvsField {
             }
         }
 
-        //-- Draw a second time without writing to a depth buffer but writing visibility
+        // Draw a second time without writing to a depth buffer but writing visibility
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[],
-                depth_stencil_attachment: Some(
-                    RenderPassDepthStencilAttachmentDescriptor {
-                        attachment: &self.module.depth,
-                        depth_load_op: LoadOp::Load,
-                        depth_store_op: StoreOp::Store,
-                        stencil_load_op: LoadOp::Load,
-                        stencil_store_op: StoreOp::Store,
-                        clear_depth: 0.0,
-                        clear_stencil: 0,
-                        stencil_read_only: true,
-                        depth_read_only: true,
-                    },
-                ),
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.module.depth,
+                    depth_load_op: LoadOp::Load,
+                    depth_store_op: StoreOp::Store,
+                    stencil_load_op: LoadOp::Load,
+                    stencil_store_op: StoreOp::Store,
+                    clear_depth: 0.0,
+                    clear_stencil: 0,
+                    stencil_read_only: true,
+                    depth_read_only: true,
+                }),
             });
 
             rpass.set_pipeline(&self.module.pipeline_write.pipeline);
@@ -535,20 +568,20 @@ impl StructurePvsField {
             }
         }
 
-        //-- Download the visibility data from the device buffer to the staging one
+        // Download the visibility data from the device buffer to the staging one
         for molecule_id in 0..self.structure.molecules.len() {
             encoder.copy_buffer_to_buffer(
                 &self.visible[molecule_id],
                 0,
                 &self.visible_staging[molecule_id],
                 0,
-                (self.structure.transforms[molecule_id].1 * size_of::<i32>())
-                    as BufferAddress,
+                (self.structure.transforms[molecule_id].1 * size_of::<i32>()) as BufferAddress,
             );
         }
 
         queue.submit(Some(encoder.finish()));
 
+        // Download the visibility data from the staging buffer to CPU
         for molecule_id in 0..self.structure.molecules.len() {
             let buffer_slice = self.visible_staging[molecule_id].slice(..);
             let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
@@ -578,28 +611,41 @@ impl StructurePvsField {
                 .collect::<Vec<u32>>();
             tmp.sort();
 
-            // println!("{}/{}", tmp.len(), visible_cpu.len());
-
             visible.push(list_to_ranges(&tmp));
         }
 
         self.sets[index] = Some(StructurePvs { visible });
         self.reduce(index);
+    }
+
+    /// Computes potentially visible sets from all possible polar coordinates given by `step`.
+    pub fn compute_all(&mut self, device: &Device, queue: &Queue) {
+        for index in 0..self.sets.len() {
+            self.compute(device, queue, index);
+        }
+    }
+
+    /// Returns potentially visible set from the given viewpoint, given by spherical coordinates in degrees of `step` multiple.
+    pub fn get(&mut self, device: &Device, queue: &Queue, index: usize) -> &StructurePvs {
+        self.compute(device, queue, index);
+
+        // if self.sets[index].is_some() {
+        //     return self.sets[index].as_ref().unwrap();
+        // }
 
         self.sets[index].as_ref().unwrap()
     }
 
     /// Returns potentially visible set from the given viewpoint.
-    pub fn pvs_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> &StructurePvs {
-        let spherical_coords = cartesian_to_spherical(&eye).apply_into(|e| (e.to_degrees().round() + 180.0) % 360.0);
+    ///
+    /// # Arguments
+    ///
+    /// * `eye` - vector **to** viewing point. Must be in the local coordinate system of the structure. If the structure is rotated, so must be the vector.
+    ///
+    pub fn get_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> &StructurePvs {
+        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        // Snap spherical coordinates to the closest view given by step size.
-        let spherical_coords = TVec2::new(
-            ((spherical_coords[0] as u32 + self.step - 1) / self.step) * self.step,
-            ((spherical_coords[1] as u32 + self.step - 1) / self.step) * self.step,
-        );
-
-        self.at_coordinates(device, queue, spherical_coords)
+        self.get(device, queue, index)
     }
 
     fn reduce(&mut self, index: usize) {
@@ -686,24 +732,11 @@ impl StructurePvsField {
         rpass: &mut RenderPass<'a>,
         eye: Vec3,
     ) {
-        let spherical_coords = cartesian_to_spherical(&eye).apply_into(|e| (e.to_degrees().round() + 180.0) % 360.0);
+        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        // Snap spherical coordinates to the closest view given by step size.
-        let spherical_coords = TVec2::new(
-            (((spherical_coords[0] as u32 + self.step - 1) / self.step) * self.step) % 360,
-            (((spherical_coords[1] as u32 + self.step - 1) / self.step) * self.step) % 360,
-        );
-
-        assert!(spherical_coords.x % self.step == 0);
-        assert!(spherical_coords.y % self.step == 0);
-
-        let steps = 360 / self.step;
-        let index =
-            ((spherical_coords.x / self.step) * steps + (spherical_coords.y / self.step)) as usize;
-
-        // if self.sets[index].is_none() {
-            self.pvs_from_eye(device, queue, eye);
-        // }
+        if self.sets[index].is_none() {
+            self.get(device, queue, index);
+        }
 
         let pvs = self.sets[index].as_ref().unwrap();
 
@@ -765,19 +798,3 @@ pub fn compress_ranges(list: Vec<(u32, u32)>, threshold: u32) -> Vec<(u32, u32)>
 
     new_list
 }
-
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn compress_ranges() {
-//         use super::compress_ranges;
-
-//         let input = vec![(0, 1), (1, 2), (2, 3), (3, 4)];
-//         let output = vec![(0, 4)];
-//         assert_eq!(compress_ranges(input, 0), output);
-
-//         let input = vec![(34, 35), (35, 36), (36, 39)];
-//         let output = vec![(34, 39)];
-//         assert_eq!(compress_ranges(input, 0), output);
-//     }
-// }

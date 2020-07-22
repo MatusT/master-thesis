@@ -90,7 +90,11 @@ impl Application {
         // Data
         let args: Vec<String> = std::env::args().collect();
 
-        let structure = Rc::new(Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout));
+        let structure = Rc::new(Structure::from_ron(
+            &device,
+            &args[1],
+            &per_molecule_bind_group_layout,
+        ));
 
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(
@@ -138,7 +142,13 @@ impl Application {
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let pvs_field = pvs_module.pvs_field(&device, &camera_bind_group_layout, structure.clone(), 15, 128);
+        let pvs_field = pvs_module.pvs_field(
+            &device,
+            &camera_bind_group_layout,
+            structure.clone(),
+            2,
+            1024,
+        );
 
         Self {
             width,

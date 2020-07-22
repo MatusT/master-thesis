@@ -1,9 +1,12 @@
 use bytemuck::*;
 use nalgebra_glm as glm;
+use std::f32::consts::PI;
 use wgpu::*;
 use winit;
 
 use crate::ApplicationEvent;
+
+const TAU: f32 = 2.0 * PI;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct CameraUbo {
@@ -39,8 +42,8 @@ pub trait Camera {
 pub struct RotationCamera {
     ubo: CameraUbo,
 
-    pub yaw: f32,
-    pub pitch: f32,
+    yaw: f32,
+    pitch: f32,
     distance: f32,
 
     speed: f32,
@@ -101,8 +104,8 @@ impl RotationCamera {
     }
 
     pub fn direction_vector(&self) -> glm::Vec3 {
-        let yaw = self.yaw.to_radians();
-        let pitch = self.pitch.to_radians();
+        let yaw = self.yaw;
+        let pitch = self.pitch;
 
         glm::vec3(
             yaw.cos() * pitch.cos(),
@@ -117,6 +120,36 @@ impl RotationCamera {
 
     pub fn set_distance(&mut self, distance: f32) {
         self.distance = distance;
+    }
+
+    pub fn yaw(&self) -> f32 {
+        self.yaw
+    }
+
+    pub fn set_yaw(&mut self, yaw: f32) {
+        assert!(yaw >= 0.0);
+        assert!(yaw <= TAU);
+
+        self.yaw = yaw;
+    }
+
+    pub fn add_yaw(&mut self, yaw_delta: f32) {
+        self.set_yaw(((self.yaw + yaw_delta % TAU) + TAU) % TAU);
+    }
+
+    pub fn pitch(&self) -> f32 {
+        self.pitch
+    }
+
+    pub fn set_pitch(&mut self, pitch: f32) {
+        assert!(pitch >= 0.0);
+        assert!(pitch <= TAU);
+
+        self.pitch = pitch;
+    }
+
+    pub fn add_pitch(&mut self, pitch_delta: f32) {
+        self.set_pitch(((self.pitch + pitch_delta % TAU) + TAU) % TAU);
     }
 }
 
@@ -143,8 +176,8 @@ impl Camera for RotationCamera {
             ApplicationEvent::DeviceEvent(event) => match event {
                 winit::event::DeviceEvent::MouseMotion { delta: (x, y) } => {
                     if self.mouse_pressed {
-                        self.yaw += *x as f32;
-                        self.pitch += *y as f32;
+                        self.add_yaw(*x as f32 / 100.0);
+                        self.add_pitch(*y as f32 / 100.0);
                     }
                 }
                 _ => {}
