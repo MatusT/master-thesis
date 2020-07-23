@@ -72,13 +72,6 @@ pub fn intersect_inside_no(v: &Vec3) -> Vec3 {
 
     let result = far * v;
 
-    assert!(result[0] >= -1.0);
-    assert!(result[1] >= -1.0);
-    assert!(result[2] >= -1.0);
-    assert!(result[0] <= 1.0);
-    assert!(result[1] <= 1.0);
-    assert!(result[2] <= 1.0);
-
     result
 }
 

@@ -1,8 +1,9 @@
 mod application;
-mod biological_structure;
 mod camera;
 mod hilbert;
 mod pipelines;
+mod pvs;
+mod structure;
 
 use wgpu::*;
 use winit::{

@@ -1,6 +1,7 @@
-use crate::biological_structure::*;
 use crate::camera::*;
 use crate::pipelines::{LinesPipeline, SphereBillboardsPipeline};
+use crate::pvs::*;
+use crate::structure::*;
 use crate::ApplicationEvent;
 
 use nalgebra_glm::reversed_infinite_perspective_rh_zo;
@@ -19,7 +20,6 @@ pub struct Application {
     multisampled_texture: TextureView,
 
     camera: RotationCamera,
-    camera_bind_group_layout: BindGroupLayout,
 
     billboards_pipeline: SphereBillboardsPipeline,
 
@@ -161,7 +161,6 @@ impl Application {
             multisampled_texture,
 
             camera,
-            camera_bind_group_layout,
 
             billboards_pipeline,
 
