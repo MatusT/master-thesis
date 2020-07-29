@@ -1,3 +1,4 @@
+use std::borrow::Cow::Borrowed;
 use wgpu::*;
 pub struct LinesPipeline {
     pub pipeline: RenderPipeline,
@@ -15,18 +16,19 @@ impl LinesPipeline {
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&camera_bind_group_layout],
+            bind_group_layouts: Borrowed(&[&camera_bind_group_layout]),
+            push_constant_ranges: Borrowed(&[]),
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             layout: &pipeline_layout,
             vertex_stage: ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
@@ -34,14 +36,15 @@ impl LinesPipeline {
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
+                clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::LineList,
-            color_states: &[ColorStateDescriptor {
+            color_states: Borrowed(&[ColorStateDescriptor {
                 format: TextureFormat::Bgra8UnormSrgb,
                 color_blend: BlendDescriptor::REPLACE,
                 alpha_blend: BlendDescriptor::REPLACE,
                 write_mask: ColorWrite::ALL,
-            }],
+            }]),
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
@@ -53,15 +56,11 @@ impl LinesPipeline {
             }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[VertexBufferDescriptor {
+                vertex_buffers: Borrowed(&[VertexBufferDescriptor {
                     step_mode: InputStepMode::Vertex,
                     stride: 12,
-                    attributes: &[VertexAttributeDescriptor {
-                        offset: 0,
-                        shader_location: 0,
-                        format: VertexFormat::Float3,
-                    }],
-                }],
+                    attributes: Borrowed(&wgpu::vertex_attr_array![0 => Float3]),
+                }]),
             },
             sample_count,
             sample_mask: !0,

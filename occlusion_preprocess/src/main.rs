@@ -21,18 +21,15 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
     let size = window.inner_size();
     let instance = Instance::new(BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
-    let adapter = futures::executor::block_on(instance.request_adapter(
-        &RequestAdapterOptions {
-            power_preference: PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-        },
-        UnsafeExtensions::disallow(),
-    ))
+    let adapter = futures::executor::block_on(instance.request_adapter(&RequestAdapterOptions {
+        power_preference: PowerPreference::HighPerformance,
+        compatible_surface: Some(&surface),
+    }))
     .unwrap();
 
     let (device, queue) = futures::executor::block_on(adapter.request_device(
         &DeviceDescriptor {
-            extensions: Extensions::empty(),
+            features: Features::empty(),
             limits: Limits::default(),
             shader_validation: false,
         },
@@ -79,7 +76,7 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
                 application.resize(sc_desc.width, sc_desc.height);
             }
             Event::RedrawRequested(_) => {
-                let frame = swap_chain.get_next_frame().unwrap();
+                let frame = swap_chain.get_current_frame().unwrap();
 
                 application.render(&frame.output.view);
             }

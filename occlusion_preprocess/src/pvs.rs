@@ -13,6 +13,7 @@ use rpdb::BoundingBox;
 use rpdb::FromRon;
 use wgpu::*;
 
+use std::borrow::Cow::Borrowed;
 use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
@@ -59,8 +60,8 @@ impl StructurePvsModule {
 
         let per_visibility_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Molecule visibility bind group layout"),
-                bindings: &[BindGroupLayoutEntry::new(
+                label: Some(Borrowed("Molecule visibility bind group layout")),
+                entries: Borrowed(&[BindGroupLayoutEntry::new(
                     0,
                     ShaderStage::all(),
                     BindingType::StorageBuffer {
@@ -68,7 +69,7 @@ impl StructurePvsModule {
                         readonly: false,
                         min_binding_size: None,
                     },
-                )],
+                )]),
             });
 
         let pipeline = SphereBillboardsDepthPipeline::new(
@@ -133,10 +134,10 @@ impl StructurePvsModule {
             visible_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &self.bind_group_layout,
-                bindings: &[Binding {
+                entries: Borrowed(&[BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(visible.last().unwrap().slice(..)),
-                }],
+                }]),
             }));
         }
 
@@ -246,10 +247,10 @@ impl StructurePvsField {
     }
 
     fn snapped_to_index(&self, snapped_coords: TVec2<u32>) -> usize {
-        assert!(snapped_coords.x < 360);
-        assert!(snapped_coords.y < 360);
-        assert!(snapped_coords.x % self.step == 0);
-        assert!(snapped_coords.y % self.step == 0);
+        debug_assert!(snapped_coords.x < 360);
+        debug_assert!(snapped_coords.y < 360);
+        debug_assert!(snapped_coords.x % self.step == 0);
+        debug_assert!(snapped_coords.y % self.step == 0);
 
         let steps = 360 / self.step;
 
@@ -268,6 +269,10 @@ impl StructurePvsField {
     }
 
     pub fn compute(&mut self, device: &Device, queue: &Queue, index: usize) {
+        if self.sets[index].is_some() {
+            return;
+        }
+
         let mut visible = Vec::new();
 
         // Configure camera
@@ -293,17 +298,14 @@ impl StructurePvsField {
         // Draw the depth buffer
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[],
+                color_attachments: Borrowed(&[]),
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.module.depth,
-                    depth_load_op: LoadOp::Clear,
-                    depth_store_op: StoreOp::Store,
-                    stencil_load_op: LoadOp::Clear,
-                    stencil_store_op: StoreOp::Store,
-                    clear_depth: 0.0,
-                    clear_stencil: 0,
-                    stencil_read_only: true,
-                    depth_read_only: false,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
                 }),
             });
 
@@ -324,17 +326,14 @@ impl StructurePvsField {
         // Draw a second time without writing to a depth buffer but writing visibility
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[],
+                color_attachments: Borrowed(&[]),
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.module.depth,
-                    depth_load_op: LoadOp::Load,
-                    depth_store_op: StoreOp::Store,
-                    stencil_load_op: LoadOp::Load,
-                    stencil_store_op: StoreOp::Store,
-                    clear_depth: 0.0,
-                    clear_stencil: 0,
-                    stencil_read_only: true,
-                    depth_read_only: true,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Load,
+                        store: false,
+                    }),
+                    stencil_ops: None,
                 }),
             });
 
@@ -380,7 +379,7 @@ impl StructurePvsField {
                     .collect();
 
                 drop(data);
-                self.visible_staging[molecule_id].unmap();
+                // self.visible_staging[molecule_id].unmap();
 
                 result
             } else {
@@ -403,6 +402,12 @@ impl StructurePvsField {
         self.reduce(index);
     }
 
+    pub fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) {
+        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+
+        self.compute(device, queue, index)
+    }
+
     /// Computes potentially visible sets from all possible polar coordinates given by `step`.
     pub fn compute_all(&mut self, device: &Device, queue: &Queue) {
         for index in 0..self.sets.len() {
@@ -411,14 +416,8 @@ impl StructurePvsField {
     }
 
     /// Returns potentially visible set from the given viewpoint, given by spherical coordinates in degrees of `step` multiple.
-    pub fn get(&mut self, device: &Device, queue: &Queue, index: usize) -> &StructurePvs {
-        self.compute(device, queue, index);
-
-        // if self.sets[index].is_some() {
-        //     return self.sets[index].as_ref().unwrap();
-        // }
-
-        self.sets[index].as_ref().unwrap()
+    pub fn get(&self, index: usize) -> Option<&StructurePvs> {
+        self.sets[index].as_ref()
     }
 
     /// Returns potentially visible set from the given viewpoint.
@@ -427,10 +426,10 @@ impl StructurePvsField {
     ///
     /// * `eye` - vector **to** viewing point. Must be in the local coordinate system of the structure. If the structure is rotated, so must be the vector.
     ///
-    pub fn get_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> &StructurePvs {
+    pub fn get_from_eye(&self, eye: Vec3) -> Option<&StructurePvs> {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        self.get(device, queue, index)
+        self.get(index)
     }
 
     fn reduce(&mut self, index: usize) {
@@ -508,19 +507,8 @@ impl StructurePvsField {
         }
     }
 
-    pub fn draw<'a>(
-        &'a mut self,
-        device: &Device,
-        queue: &Queue,
-        rpass: &mut RenderPass<'a>,
-        eye: Vec3,
-    ) {
+    pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
-
-        if self.sets[index].is_none() {
-            self.get(device, queue, index);
-        }
-
         let pvs = self.sets[index].as_ref().unwrap();
 
         for molecule_id in 0..self.structure.molecules().len() {
@@ -530,6 +518,31 @@ impl StructurePvsField {
                 let start = self.structure.molecules()[molecule_id].lods()[0].1.start;
                 let end = self.structure.molecules()[molecule_id].lods()[0].1.end;
                 rpass.draw(start..end, range.0..range.1);
+            }
+        }
+    }
+
+    pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3, distance: f32) {
+        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+        let pvs = self.sets[index].as_ref().unwrap();
+
+        for molecule_id in 0..self.structure.molecules().len() {
+            rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+
+            for i in 0..self.structure.molecules()[molecule_id].lods().len() {
+                if (i == self.structure.molecules()[molecule_id].lods().len() - 1)
+                    || (distance > self.structure.molecules()[molecule_id].lods()[i].0
+                        && distance < self.structure.molecules()[molecule_id].lods()[i + 1].0)
+                {
+                    let start = self.structure.molecules()[molecule_id].lods()[i].1.start;
+                    let end = self.structure.molecules()[molecule_id].lods()[i].1.end;
+
+                    for range in pvs.visible[molecule_id].iter() {
+                        rpass.draw(start..end, range.0..range.1);
+                    }
+
+                    break;
+                }
             }
         }
     }

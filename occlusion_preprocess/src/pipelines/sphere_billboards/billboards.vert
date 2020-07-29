@@ -7,11 +7,18 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   vec4 position;
 };
 
-layout(set = 1, binding = 0, std430) buffer Positions { vec4 positions[]; };
+layout(set = 1, binding = 0, std430) buffer MoleculeAtomsPositions {
+  vec4 positions[];
+};
 
-layout(set = 1, binding = 1, std430) buffer ModelMatrices {
+layout(set = 1, binding = 1, std430) buffer MoleculeModelMatrices {
   mat4 model_matrices[];
 };
+
+layout(set = 2, binding = 0, std140) uniform StructureGlobals {
+  mat4 model_matrix;
+}
+structure;
 
 layout(location = 0) out vec2 uv;
 layout(location = 1) out vec4 position_clip_space;
@@ -66,7 +73,7 @@ void main() {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
-  const mat4 model_matrix = model_matrices[gl_InstanceIndex];
+  const mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
   const vec4 world_position =
       model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
   scale = positions[gl_VertexIndex / 3].w;
@@ -79,11 +86,12 @@ void main() {
   // color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >>
   // 16) & 255)) / 255.0;
   //   int face = vector_cube_face(model_matrix[3].xyz);
-  uint mhash = hash(gl_InstanceIndex / 2048);
-  color = vec3(float(mhash & 255), float((mhash >> 8) & 255),
-               float((mhash >> 16) & 255)) /
-          255.0;
+  // uint mhash = hash(gl_InstanceIndex / 2048);
+  // color = vec3(float(mhash & 255), float((mhash >> 8) & 255),
+  //              float((mhash >> 16) & 255)) /
+  //         255.0;
   // color = vec3((gl_InstanceIndex * 10.0) / 25.0);
+  color = vec3(1.0);
 
   uv = vertex;
   position_clip_space = projection_view * position_worldspace;

@@ -1,3 +1,4 @@
+use std::borrow::Cow::Borrowed;
 use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,
@@ -8,6 +9,7 @@ impl SphereBillboardsPipeline {
         device: &Device,
         camera_bind_group_layout: &BindGroupLayout,
         per_molecule_bind_group_layout: &BindGroupLayout,
+        per_structure_bind_group_layout: &BindGroupLayout,
         sample_count: u32,
     ) -> Self {
         // Shaders
@@ -16,18 +18,23 @@ impl SphereBillboardsPipeline {
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&camera_bind_group_layout, &per_molecule_bind_group_layout],
+            bind_group_layouts: Borrowed(&[
+                &camera_bind_group_layout,
+                &per_molecule_bind_group_layout,
+                &per_structure_bind_group_layout,
+            ]),
+            push_constant_ranges: Borrowed(&[]),
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             layout: &pipeline_layout,
             vertex_stage: ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
@@ -35,14 +42,15 @@ impl SphereBillboardsPipeline {
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
+                clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[ColorStateDescriptor {
+            color_states: Borrowed(&[ColorStateDescriptor {
                 format: TextureFormat::Bgra8UnormSrgb,
                 color_blend: BlendDescriptor::REPLACE,
                 alpha_blend: BlendDescriptor::REPLACE,
                 write_mask: ColorWrite::ALL,
-            }],
+            }]),
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
@@ -54,7 +62,7 @@ impl SphereBillboardsPipeline {
             }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[],
+                vertex_buffers: Borrowed(&[]),
             },
             sample_count,
             sample_mask: !0,
@@ -98,7 +106,8 @@ impl SphereBillboardsDepthPipeline {
         };
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &bind_group_layouts,
+            bind_group_layouts: Borrowed(&bind_group_layouts),
+            push_constant_ranges: Borrowed(&[]),
         });
 
         let depth_stencil_state = if write_visibility {
@@ -127,11 +136,11 @@ impl SphereBillboardsDepthPipeline {
             layout: &pipeline_layout,
             vertex_stage: ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: "main",
+                entry_point: Borrowed("main"),
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
@@ -139,13 +148,14 @@ impl SphereBillboardsDepthPipeline {
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
+                clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[],
+            color_states: Borrowed(&[]),
             depth_stencil_state,
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: &[],
+                vertex_buffers: Borrowed(&[]),
             },
             sample_count,
             sample_mask: !0,

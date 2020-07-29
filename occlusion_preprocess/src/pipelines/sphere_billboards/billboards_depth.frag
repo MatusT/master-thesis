@@ -21,15 +21,6 @@ void main(void) {
   if (length(uv) > scale) {
     discard;
   }
-  
-// #ifdef WRITE_VISIBILITY
-
-// #else 
-//   discard;
-//   // if (length(uv) > 0.5 * scale) {
-//   //   discard;
-//   // }
-// #endif
 
 #ifdef WRITE_VISIBILITY
   fragments[instance_index] = 1;

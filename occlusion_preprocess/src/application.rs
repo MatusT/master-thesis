@@ -4,10 +4,17 @@ use crate::pvs::*;
 use crate::structure::*;
 use crate::ApplicationEvent;
 
-use nalgebra_glm::reversed_infinite_perspective_rh_zo;
+use bytemuck::cast_slice;
+use nalgebra_glm::*;
 use wgpu::*;
 
+use std::borrow::Cow::Borrowed;
 use std::rc::Rc;
+
+struct ApplicationState {
+    pub draw_lod: bool,
+    pub draw_occluded: bool,
+}
 
 pub struct Application {
     width: u32,
@@ -16,6 +23,8 @@ pub struct Application {
     device: Device,
     queue: Queue,
 
+    state: ApplicationState,
+
     depth_texture: TextureView,
     multisampled_texture: TextureView,
 
@@ -23,11 +32,13 @@ pub struct Application {
 
     billboards_pipeline: SphereBillboardsPipeline,
 
-    pub recalculate: bool,
-
-    structure: Rc<Structure>,
     pvs_module: Rc<StructurePvsModule>,
-    pvs_field: StructurePvsField,
+
+    covid: Rc<Structure>,
+    covid_pvs: StructurePvsField,
+    covid_transforms: Vec<Mat4>,
+    covid_transforms_gpu: Buffer,
+    covid_transforms_bgs: Vec<BindGroup>,
 }
 
 impl Application {
@@ -42,21 +53,21 @@ impl Application {
         // Shared bind group layouts
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Camera bind group layout"),
-                bindings: &[BindGroupLayoutEntry::new(
+                label: Some(Borrowed("Camera bind group layout")),
+                entries: Borrowed(&[BindGroupLayoutEntry::new(
                     0,
                     ShaderStage::all(),
                     BindingType::UniformBuffer {
                         dynamic: false,
                         min_binding_size: Some(CameraUbo::size()),
                     },
-                )],
+                )]),
             });
 
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Molecule bind group layout"),
-                bindings: &[
+                label: Some(Borrowed("Molecule bind group layout")),
+                entries: Borrowed(&[
                     BindGroupLayoutEntry::new(
                         0,
                         ShaderStage::all(),
@@ -75,7 +86,19 @@ impl Application {
                             min_binding_size: None,
                         },
                     ),
-                ],
+                ]),
+            });
+        let per_structure_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some(Borrowed("Structure bind group layout")),
+                entries: Borrowed(&[BindGroupLayoutEntry::new(
+                    0,
+                    ShaderStage::VERTEX,
+                    BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: None,
+                    },
+                )]),
             });
 
         // Camera
@@ -90,7 +113,7 @@ impl Application {
         // Data
         let args: Vec<String> = std::env::args().collect();
 
-        let structure = Rc::new(Structure::from_ron(
+        let covid = Rc::new(Structure::from_ron(
             &device,
             &args[1],
             &per_molecule_bind_group_layout,
@@ -101,6 +124,7 @@ impl Application {
             &device,
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
+            &per_structure_bind_group_layout,
             sample_count,
         );
 
@@ -142,13 +166,48 @@ impl Application {
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let pvs_field = pvs_module.pvs_field(
-            &device,
-            &camera_bind_group_layout,
-            structure.clone(),
-            2,
-            1024,
-        );
+        let covid_pvs =
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 128);
+
+        let mut covid_transforms = Vec::new();
+        for x in -1..=1 {
+            for y in -1..=1 {
+                for z in -1..=1 {
+                    // vec![rotation(90.0f32.to_radians(), &vec3(0.0, 1.0, 0.0)), translation(&vec3(2.0 * covid.bounding_radius(), 0.0, 0.0))];
+                    let x = x as f32 * 2.0 * covid.bounding_radius();
+                    let y = y as f32 * 2.0 * covid.bounding_radius();
+                    let z = z as f32 * 2.0 * covid.bounding_radius();
+                    covid_transforms.push(translation(&vec3(x, y, z)));
+                }
+            }
+        }
+        let covid_transforms_gpu = {
+            let mut raw: Vec<f32> = Vec::new();
+            for transform in &covid_transforms {
+                raw.extend_from_slice(transform.as_slice());
+                raw.extend_from_slice(&[0.0; 48]);
+            }
+            device.create_buffer_with_data(cast_slice(&raw), BufferUsage::UNIFORM)
+        };
+        let mut covid_transforms_bgs = Vec::new();
+        for i in 0..covid_transforms.len() {
+            let i = i as u64;
+            covid_transforms_bgs.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &per_structure_bind_group_layout,
+                entries: Borrowed(&[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(
+                        covid_transforms_gpu.slice(i * 256..(i + 1) * 256),
+                    ),
+                }]),
+            }));
+        }
+
+        let state = ApplicationState {
+            draw_lod: true,
+            draw_occluded: false,
+        };
 
         Self {
             width,
@@ -157,6 +216,8 @@ impl Application {
             device,
             queue,
 
+            state,
+
             depth_texture,
             multisampled_texture,
 
@@ -164,11 +225,13 @@ impl Application {
 
             billboards_pipeline,
 
-            recalculate: true,
-
-            structure: structure.clone(),
             pvs_module: pvs_module.clone(),
-            pvs_field,
+
+            covid: covid.clone(),
+            covid_pvs,
+            covid_transforms,
+            covid_transforms_gpu,
+            covid_transforms_bgs,
         }
     }
 
@@ -177,12 +240,49 @@ impl Application {
     }
 
     pub fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
+        use winit::event::VirtualKeyCode;
+        use winit::event::WindowEvent::*;
+        use winit::event::ElementState;
+
         self.camera.update(event);
+
+        match event {
+            ApplicationEvent::WindowEvent(event) => {
+                match event {
+                    KeyboardInput { input, .. } => {
+                        if input.state == ElementState::Pressed {
+                            if let Some(keycode) = input.virtual_keycode {
+                                match keycode {
+                                    VirtualKeyCode::L => {
+                                        self.state.draw_lod = !self.state.draw_lod;
+                                    }
+                                    VirtualKeyCode::O => {
+                                        self.state.draw_occluded = !self.state.draw_occluded;
+                                    }
+                                    _ => {}
+                                };
+                            }
+                        }
+                    }
+                    _ => {}
+                };
+            }
+            _ => {}
+        }
     }
 
     pub fn render(&mut self, frame: &TextureView) {
         //================== CAMERA DATA UPLOAD
         self.camera.update_gpu(&self.queue);
+
+        for i in 0..self.covid_transforms.len() {
+            let rotation = self.covid_transforms[i].fixed_slice::<U3, U3>(0, 0);
+            let position = self.covid_transforms[i].column(3).xyz();
+            let direction = normalize(&(self.camera.eye() - position));
+
+            self.covid_pvs
+                .compute_from_eye(&self.device, &self.queue, direction);
+        }
 
         //================== RENDER MOLECULES
         let mut encoder = self
@@ -191,40 +291,49 @@ impl Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                color_attachments: Borrowed(&[RenderPassColorAttachmentDescriptor {
                     attachment: &frame,
                     resolve_target: None,
-                    // attachment: &self.multisampled_texture,
-                    // resolve_target: Some(&frame),
-                    load_op: LoadOp::Clear,
-                    store_op: StoreOp::Store,
-                    clear_color: Color::WHITE,
-                }],
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::WHITE),
+                        store: true,
+                    },
+                }]),
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
-                    depth_load_op: LoadOp::Clear,
-                    depth_store_op: StoreOp::Store,
-                    stencil_load_op: LoadOp::Load,
-                    stencil_store_op: StoreOp::Store,
-                    clear_depth: 0.0,
-                    clear_stencil: 0,
-                    stencil_read_only: true,
-                    depth_read_only: false,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
                 }),
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            let distance = self.camera.distance() - self.structure.bounding_radius();
+            for i in 0..self.covid_transforms.len() {
+                rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
 
-            // self.structure.draw_lod(&mut rpass, distance);
-            self.pvs_field.draw(
-                &self.device,
-                &self.queue,
-                &mut rpass,
-                self.camera.direction_vector(),
-            );
+                let rotation = self.covid_transforms[i].fixed_slice::<U3, U3>(0, 0);
+                let position = self.covid_transforms[i].column(3).xyz();
+                let direction = self.camera.eye() - position;
+
+                if self.state.draw_lod {
+                    if self.state.draw_occluded {
+                        self.covid.draw_lod(&mut rpass, direction.magnitude());
+                    } else {
+                        self.covid_pvs
+                            .draw_lod(&mut rpass, direction, direction.magnitude());
+                    }
+                } else {
+                    if self.state.draw_occluded {
+                        self.covid.draw(&mut rpass);
+                    } else {
+                        self.covid_pvs.draw(&mut rpass, direction);
+                    }
+                }
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));

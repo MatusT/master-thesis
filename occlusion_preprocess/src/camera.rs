@@ -4,6 +4,8 @@ use std::f32::consts::PI;
 use wgpu::*;
 use winit;
 
+use std::borrow::Cow::Borrowed;
+
 use crate::ApplicationEvent;
 
 const TAU: f32 = 2.0 * PI;
@@ -80,10 +82,10 @@ impl RotationCamera {
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &bind_group_layout,
-            bindings: &[Binding {
+            entries: Borrowed(&[BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(buffer.slice(..)),
-            }],
+            }]),
             label: None,
         });
 
@@ -101,6 +103,10 @@ impl RotationCamera {
             buffer,
             bind_group,
         }
+    }
+
+    pub fn eye(&self) -> glm::Vec3 {
+        self.distance * self.direction_vector()
     }
 
     pub fn direction_vector(&self) -> glm::Vec3 {

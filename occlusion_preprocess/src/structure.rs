@@ -13,6 +13,8 @@ use rpdb::BoundingBox;
 use rpdb::FromRon;
 use wgpu::*;
 
+use std::borrow::Cow::Borrowed;
+
 use crate::hilbert;
 
 /// GPU represantion of a molecule for visualization.
@@ -148,16 +150,16 @@ impl Structure {
             bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &per_molecule_bind_group_layout,
-                bindings: &[
-                    Binding {
+                entries: Borrowed(&[
+                    BindGroupEntry {
                         binding: 0,
                         resource: BindingResource::Buffer(new_molecule.atoms().slice(..)),
                     },
-                    Binding {
+                    BindGroupEntry {
                         binding: 1,
                         resource: BindingResource::Buffer(transforms.last().unwrap().0.slice(..)),
                     },
-                ],
+                ]),
             }));
 
             molecules.push(new_molecule);
