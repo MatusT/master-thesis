@@ -1,0 +1,1 @@
+glslangvalidator -V billboards.vert -o billboards.vert.spv
