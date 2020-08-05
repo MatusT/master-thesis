@@ -1,0 +1,122 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#include "consts.glsl"
+#include "common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std140) uniform Constants
+{
+    CACAOConstants constants;
+};
+
+// Samplers
+layout(set = 1, binding = 0) uniform sampler g_PointClampSampler;
+
+// Input
+layout(set = 1, binding = 1) uniform texture2D g_DepthSource;
+
+// Output
+layout(set = 1, binding = 2, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip0;
+layout(set = 1, binding = 3, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip1;
+layout(set = 1, binding = 4, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip2;
+layout(set = 1, binding = 5, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip3;
+
+shared float s_PrepareDepthsAndMipsBuffer[4][8][8];
+
+vec4 ScreenSpaceToViewSpaceDepth(vec4 screenDepth)
+{
+    float depthLinearizeMul = constants.DepthUnpackConsts.x;
+    float depthLinearizeAdd = constants.DepthUnpackConsts.y;
+    return vec4(depthLinearizeMul) / (vec4(depthLinearizeAdd) - screenDepth);
+}
+
+float MipSmartAverage(vec4 depths)
+{
+    float closest = min(min(depths.x, depths.y), min(depths.z, depths.w));
+    float falloffCalcMulSq = (-1.0 / constants.EffectRadius) * constants.EffectRadius;
+    vec4 dists = depths - vec4(closest);
+    vec4 weights = clamp(dists * dists * falloffCalcMulSq + 1.0, 0.0, 1.0);
+    return dot(weights, depths) / dot(weights, vec4(1.0));
+}
+
+void PrepareDepthsAndMips(vec4 samples, ivec2 outputCoord, uvec2 gtid)
+{
+    samples = ScreenSpaceToViewSpaceDepth(samples);
+
+    s_PrepareDepthsAndMipsBuffer[0][gtid.x][gtid.y] = samples.w;
+    s_PrepareDepthsAndMipsBuffer[1][gtid.x][gtid.y] = samples.z;
+    s_PrepareDepthsAndMipsBuffer[2][gtid.x][gtid.y] = samples.x;
+    s_PrepareDepthsAndMipsBuffer[3][gtid.x][gtid.y] = samples.y;
+
+    imageStore(g_PrepareDepthsAndMips_OutMip0, ivec3(outputCoord.x, outputCoord.y, 0), vec4(samples.w));
+    imageStore(g_PrepareDepthsAndMips_OutMip0, ivec3(outputCoord.x, outputCoord.y, 1), vec4(samples.z));
+    imageStore(g_PrepareDepthsAndMips_OutMip0, ivec3(outputCoord.x, outputCoord.y, 2), vec4(samples.x));
+    imageStore(g_PrepareDepthsAndMips_OutMip0, ivec3(outputCoord.x, outputCoord.y, 3), vec4(samples.y));
+    
+    int depthArrayIndex = int((2u * (gtid.y % 2u)) + (gtid.x % 2u));
+    ivec2 depthArrayOffset = ivec2(int(gtid.x % 2u), int(gtid.y % 2u));
+
+    ivec2 bufferCoord = ivec2(gtid - uvec2(depthArrayOffset));
+    outputCoord /= ivec2(2);
+
+    // if (stillAlive) <-- all threads alive here
+    {
+        float sample_00 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 0];
+        float sample_01 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 1];
+        float sample_10 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 1][bufferCoord.y + 0];
+        float sample_11 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 1][bufferCoord.y + 1];
+    
+        float avg = MipSmartAverage(vec4(sample_00, sample_01, sample_10, sample_11));
+
+        imageStore(g_PrepareDepthsAndMips_OutMip1, ivec3(uvec3(ivec3(outputCoord.x, outputCoord.y, depthArrayIndex))), vec4(avg));
+        s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x][bufferCoord.y] = avg;
+    }
+    
+    bool stillAlive = ((gtid.x % 4u) == uint(depthArrayOffset.x)) && ((gtid.y % 4u) == uint(depthArrayOffset.y));
+    outputCoord /= ivec2(2);
+    barrier();
+    
+    if (stillAlive)
+    {
+        float sample_00 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 0];
+        float sample_01 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 2];
+        float sample_10 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 2][bufferCoord.y + 0];
+        float sample_11 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 2][bufferCoord.y + 2];
+        
+        float avg = MipSmartAverage(vec4(sample_00, sample_01, sample_10, sample_11));
+        
+        imageStore(g_PrepareDepthsAndMips_OutMip2, ivec3(outputCoord.x, outputCoord.y, depthArrayIndex), vec4(avg));
+        s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x][bufferCoord.y] = avg;
+    }
+
+    stillAlive = ((gtid.x % 8u) == uint(depthArrayOffset.x)) && ((depthArrayOffset.y - 8 * (depthArrayOffset.y / 8)) == depthArrayOffset.y);
+    outputCoord /= ivec2(2);
+    barrier();
+
+    if (stillAlive)
+    {
+        float sample_00 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 0];
+        float sample_01 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 0][bufferCoord.y + 4];
+        float sample_10 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 4][bufferCoord.y + 0];
+        float sample_11 = s_PrepareDepthsAndMipsBuffer[depthArrayIndex][bufferCoord.x + 4][bufferCoord.y + 4];
+        
+        float avg = MipSmartAverage(vec4(sample_00, sample_01, sample_10, sample_11));
+        
+        imageStore(g_PrepareDepthsAndMips_OutMip3, ivec3(outputCoord.x, outputCoord.y, depthArrayIndex), vec4(avg));
+    }
+}
+
+void main()
+{
+    uvec2 tid = gl_GlobalInvocationID.xy;
+    uvec2 gtid = gl_LocalInvocationID.xy;
+
+    ivec2 depthBufferCoord = ivec2(uvec2(2u) * tid);
+    ivec2 outputCoord = ivec2(tid);
+
+    vec2 uv = (vec2(depthBufferCoord) + vec2(0.5)) * constants.DepthBufferInverseDimensions;
+    vec4 samples = textureGather(sampler2D(g_DepthSource, g_PointClampSampler), uv, 0);
+
+    PrepareDepthsAndMips(samples, outputCoord, gtid);
+}
