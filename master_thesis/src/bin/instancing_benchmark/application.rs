@@ -8,8 +8,7 @@ use wgpu::*;
 
 use std::borrow::Cow::Borrowed;
 
-struct ApplicationState {
-}
+struct ApplicationState {}
 
 pub struct Application {
     width: u32,
@@ -60,7 +59,6 @@ impl Application {
 
         // Pipelines
 
-
         // Default framebuffer
         let depth_texture = device
             .create_texture(&TextureDescriptor {
@@ -94,10 +92,7 @@ impl Application {
             })
             .create_default_view();
 
-
-        let state = ApplicationState {
-
-        };
+        let state = ApplicationState {};
 
         Self {
             width,
@@ -151,7 +146,6 @@ impl Application {
                     stencil_ops: None,
                 }),
             });
-
         }
 
         self.queue.submit(Some(encoder.finish()));

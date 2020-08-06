@@ -1,0 +1,45 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "consts.glsl"
+#include "common.glsl"
+
+layout(set = 0, binding = 0, std140) uniform Constants
+{
+    CACAOConstants constants;
+};
+
+// Samplers
+layout(set = 1, binding = 0) uniform sampler g_PointClampSampler;
+
+// Input
+layout(set = 1, binding = 1) uniform texture2D g_PrepareNormalsFromNormalsInput;
+
+// Output
+layout(set = 1, binding = 2, rgba32f) uniform writeonly image2DArray g_PrepareNormalsFromNormalsOutput;
+
+vec3 DecodeNormal(vec3 encodedNormal)
+{
+    vec3 normal = encodedNormal * 2.0 + 1.0;
+    normal = mat3(constants.NormalsWorldToViewspaceMatrix[0].xyz, constants.NormalsWorldToViewspaceMatrix[1].xyz, constants.NormalsWorldToViewspaceMatrix[2].xyz) * normal;
+    return normal;
+}
+
+vec3 PrepareNormalsFromInputNormalsLoadNormal(ivec2 pos)
+{
+    vec3 encodedNormal = texture(sampler2D(g_PrepareNormalsFromNormalsInput, g_PointClampSampler), (vec2(pos) + vec2(0.5)) * constants.OutputBufferInverseDimensions).xyz;
+    return DecodeNormal(encodedNormal);
+}
+
+void main()
+{
+    ivec2 baseCoord = 2 * ivec2(gl_GlobalInvocationID.xy);
+
+    imageStore(g_PrepareNormalsFromNormalsOutput, ivec3(gl_GlobalInvocationID.xy, 0), vec4(PrepareNormalsFromInputNormalsLoadNormal(baseCoord + ivec2(0, 0)), 1.0));
+    imageStore(g_PrepareNormalsFromNormalsOutput, ivec3(gl_GlobalInvocationID.xy, 1), vec4(PrepareNormalsFromInputNormalsLoadNormal(baseCoord + ivec2(1, 0)), 1.0));
+    imageStore(g_PrepareNormalsFromNormalsOutput, ivec3(gl_GlobalInvocationID.xy, 2), vec4(PrepareNormalsFromInputNormalsLoadNormal(baseCoord + ivec2(0, 1)), 1.0));
+    imageStore(g_PrepareNormalsFromNormalsOutput, ivec3(gl_GlobalInvocationID.xy, 3), vec4(PrepareNormalsFromInputNormalsLoadNormal(baseCoord + ivec2(1, 1)), 1.0));
+}
+

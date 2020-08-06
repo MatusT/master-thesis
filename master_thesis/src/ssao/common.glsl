@@ -1,5 +1,7 @@
 struct CACAOConstants
 {
+	mat4                  NormalsWorldToViewspaceMatrix;
+
 	ivec2                 DepthBufferOffset;
 	vec2                  DepthUnpackConsts;
 

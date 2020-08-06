@@ -240,9 +240,9 @@ impl Application {
     }
 
     pub fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
+        use winit::event::ElementState;
         use winit::event::VirtualKeyCode;
         use winit::event::WindowEvent::*;
-        use winit::event::ElementState;
 
         self.camera.update(event);
 
