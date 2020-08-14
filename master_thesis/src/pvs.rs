@@ -9,8 +9,8 @@
 use bytemuck::cast_slice;
 use nalgebra_glm::{normalize, ortho_rh_zo, vec2, vec3, TVec2, Vec2, Vec3};
 use wgpu::*;
+use wgpu::util::*;
 
-use std::borrow::Cow::Borrowed;
 use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
@@ -52,20 +52,21 @@ impl StructurePvsModule {
                 format: TextureFormat::Depth32Float,
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
             })
-            .create_default_view();
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let per_visibility_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some(Borrowed("Molecule visibility bind group layout")),
-                entries: Borrowed(&[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::all(),
-                    BindingType::StorageBuffer {
+                label: Some("Molecule visibility bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::StorageBuffer {
                         dynamic: false,
                         readonly: false,
                         min_binding_size: None,
                     },
-                )]),
+                    count: None,
+                }],
             });
 
         let pipeline = SphereBillboardsDepthPipeline::new(
@@ -117,10 +118,10 @@ impl StructurePvsModule {
         let mut max_size = 0;
         for i in 0..structure.molecules().len() {
             max_size = max_size.max(structure.transforms()[i].1);
-            visible.push(device.create_buffer_with_data(
+            visible.push(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
                 cast_slice(&vec![0i32; structure.transforms()[i].1]),
-                BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
-            ));
+                usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
+            }));
             visible_staging.push(device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: (structure.transforms()[i].1 * size_of::<i32>()) as u64,
@@ -130,17 +131,17 @@ impl StructurePvsModule {
             visible_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &self.bind_group_layout,
-                entries: Borrowed(&[BindGroupEntry {
+                entries: &[BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(visible.last().unwrap().slice(..)),
-                }]),
+                }],
             }));
         }
 
-        let zero_buffer = device.create_buffer_with_data(
+        let zero_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
             cast_slice(&vec![0i32; max_size]),
-            BufferUsage::STORAGE | BufferUsage::COPY_SRC,
-        );
+            usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC,
+        });
 
         StructurePvsField {
             module: Rc::clone(&self),
@@ -294,7 +295,7 @@ impl StructurePvsField {
         // Draw the depth buffer
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: Borrowed(&[]),
+                color_attachments: &[],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.module.depth,
                     depth_ops: Some(Operations {
@@ -322,7 +323,7 @@ impl StructurePvsField {
         // Draw a second time without writing to a depth buffer but writing visibility
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: Borrowed(&[]),
+                color_attachments: &[],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.module.depth,
                     depth_ops: Some(Operations {

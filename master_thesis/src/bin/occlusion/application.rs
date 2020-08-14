@@ -7,8 +7,8 @@ use master_thesis::ApplicationEvent;
 use bytemuck::cast_slice;
 use nalgebra_glm::*;
 use wgpu::*;
+use wgpu::util::*;
 
-use std::borrow::Cow::Borrowed;
 use std::rc::Rc;
 
 struct ApplicationState {
@@ -53,52 +53,56 @@ impl Application {
         // Shared bind group layouts
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some(Borrowed("Camera bind group layout")),
-                entries: Borrowed(&[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::all(),
-                    BindingType::UniformBuffer {
+                label: Some("Camera bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
                         dynamic: false,
                         min_binding_size: Some(CameraUbo::size()),
                     },
-                )]),
+                    count: None,
+                }],
             });
 
         let per_molecule_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some(Borrowed("Molecule bind group layout")),
-                entries: Borrowed(&[
-                    BindGroupLayoutEntry::new(
-                        0,
-                        ShaderStage::all(),
-                        BindingType::StorageBuffer {
+                label: Some("Molecule bind group layout"),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
                             min_binding_size: None,
                         },
-                    ),
-                    BindGroupLayoutEntry::new(
-                        1,
-                        ShaderStage::all(),
-                        BindingType::StorageBuffer {
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::StorageBuffer {
                             dynamic: false,
                             readonly: true,
                             min_binding_size: None,
                         },
-                    ),
-                ]),
+                        count: None,
+                    },
+                ],
             });
         let per_structure_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some(Borrowed("Structure bind group layout")),
-                entries: Borrowed(&[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::VERTEX,
-                    BindingType::UniformBuffer {
+                label: Some("Structure bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::VERTEX,
+                    ty: BindingType::UniformBuffer {
                         dynamic: false,
                         min_binding_size: None,
                     },
-                )]),
+                    count: None,
+                }],
             });
 
         // Camera
@@ -143,7 +147,7 @@ impl Application {
                 format: TextureFormat::Depth32Float,
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
             })
-            .create_default_view();
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let multisampled_texture = device
             .create_texture(&TextureDescriptor {
@@ -159,7 +163,7 @@ impl Application {
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
                 label: None,
             })
-            .create_default_view();
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let pvs_module = Rc::new(StructurePvsModule::new(
             &device,
@@ -187,7 +191,7 @@ impl Application {
                 raw.extend_from_slice(transform.as_slice());
                 raw.extend_from_slice(&[0.0; 48]);
             }
-            device.create_buffer_with_data(cast_slice(&raw), BufferUsage::UNIFORM)
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&raw), usage: BufferUsage::UNIFORM })
         };
         let mut covid_transforms_bgs = Vec::new();
         for i in 0..covid_transforms.len() {
@@ -195,12 +199,12 @@ impl Application {
             covid_transforms_bgs.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &per_structure_bind_group_layout,
-                entries: Borrowed(&[BindGroupEntry {
+                entries: &[BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(
                         covid_transforms_gpu.slice(i * 256..(i + 1) * 256),
                     ),
-                }]),
+                }],
             }));
         }
 
@@ -291,14 +295,14 @@ impl Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: Borrowed(&[RenderPassColorAttachmentDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color::WHITE),
                         store: true,
                     },
-                }]),
+                }],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {

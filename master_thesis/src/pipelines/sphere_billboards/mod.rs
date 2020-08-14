@@ -1,4 +1,4 @@
-use std::borrow::Cow::Borrowed;
+
 use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,
@@ -18,23 +18,25 @@ impl SphereBillboardsPipeline {
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: Borrowed(&[
+            label: None,
+            bind_group_layouts: &[
                 &camera_bind_group_layout,
                 &per_molecule_bind_group_layout,
                 &per_structure_bind_group_layout,
-            ]),
-            push_constant_ranges: Borrowed(&[]),
+            ],
+            push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            label: None,
+            layout: Some(&pipeline_layout),
             vertex_stage: ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: Borrowed("main"),
+                entry_point: "main",
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: Borrowed("main"),
+                entry_point: "main",
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
@@ -45,24 +47,21 @@ impl SphereBillboardsPipeline {
                 clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: Borrowed(&[ColorStateDescriptor {
+            color_states: &[ColorStateDescriptor {
                 format: TextureFormat::Bgra8UnormSrgb,
                 color_blend: BlendDescriptor::REPLACE,
                 alpha_blend: BlendDescriptor::REPLACE,
                 write_mask: ColorWrite::ALL,
-            }]),
+            }],
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: CompareFunction::Greater,
-                stencil_front: StencilStateFaceDescriptor::IGNORE,
-                stencil_back: StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: Borrowed(&[]),
+                vertex_buffers: &[],
             },
             sample_count,
             sample_mask: !0,
@@ -106,8 +105,9 @@ impl SphereBillboardsDepthPipeline {
         };
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: Borrowed(&bind_group_layouts),
-            push_constant_ranges: Borrowed(&[]),
+            label: None,
+            bind_group_layouts: &bind_group_layouts,
+            push_constant_ranges: &[],
         });
 
         let depth_stencil_state = if write_visibility {
@@ -115,32 +115,27 @@ impl SphereBillboardsDepthPipeline {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: false,
                 depth_compare: CompareFunction::GreaterEqual,
-                stencil_front: StencilStateFaceDescriptor::IGNORE,
-                stencil_back: StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: StencilStateDescriptor::default(),
             })
         } else {
             Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: CompareFunction::Greater,
-                stencil_front: StencilStateFaceDescriptor::IGNORE,
-                stencil_back: StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: StencilStateDescriptor::default(),
             })
         };
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            label: None,
+            layout: Some(&pipeline_layout),
             vertex_stage: ProgrammableStageDescriptor {
                 module: &vs_module,
-                entry_point: Borrowed("main"),
+                entry_point: "main",
             },
             fragment_stage: Some(ProgrammableStageDescriptor {
                 module: &fs_module,
-                entry_point: Borrowed("main"),
+                entry_point: "main",
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
@@ -151,11 +146,11 @@ impl SphereBillboardsDepthPipeline {
                 clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: Borrowed(&[]),
+            color_states: &[],
             depth_stencil_state,
             vertex_state: VertexStateDescriptor {
                 index_format: IndexFormat::Uint16,
-                vertex_buffers: Borrowed(&[]),
+                vertex_buffers: &[],
             },
             sample_count,
             sample_mask: !0,

@@ -11,16 +11,16 @@ layout(set = 0, binding = 0, std140) uniform Constants
 };
 
 // Samplers
-layout(set = 1, binding = 0) uniform sampler g_PointClampSampler;
+layout(set = 0, binding = 1) uniform sampler g_PointClampSampler;
 
 // Input
-layout(set = 1, binding = 1) uniform texture2D g_DepthSource;
+layout(set = 0, binding = 2) uniform texture2D g_DepthSource;
 
 // Output
-layout(set = 1, binding = 2, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip0;
-layout(set = 1, binding = 3, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip1;
-layout(set = 1, binding = 4, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip2;
-layout(set = 1, binding = 5, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip3;
+layout(set = 0, binding = 3, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip0;
+layout(set = 0, binding = 4, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip1;
+layout(set = 0, binding = 5, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip2;
+layout(set = 0, binding = 6, r32f) uniform writeonly image2DArray g_PrepareDepthsAndMips_OutMip3;
 
 shared float s_PrepareDepthsAndMipsBuffer[4][8][8];
 

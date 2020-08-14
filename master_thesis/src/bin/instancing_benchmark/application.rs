@@ -6,7 +6,7 @@ use bytemuck::cast_slice;
 use nalgebra_glm::*;
 use wgpu::*;
 
-use std::borrow::Cow::Borrowed;
+
 
 struct ApplicationState {}
 
@@ -37,15 +37,16 @@ impl Application {
         // Shared bind group layouts
         let camera_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some(Borrowed("Camera bind group layout")),
-                entries: Borrowed(&[BindGroupLayoutEntry::new(
-                    0,
-                    ShaderStage::all(),
-                    BindingType::UniformBuffer {
+                label: Some("Camera bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
                         dynamic: false,
                         min_binding_size: Some(CameraUbo::size()),
                     },
-                )]),
+                    count: None,
+                }],
             });
 
         // Camera
@@ -74,7 +75,7 @@ impl Application {
                 format: TextureFormat::Depth32Float,
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
             })
-            .create_default_view();
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let multisampled_texture = device
             .create_texture(&TextureDescriptor {
@@ -90,7 +91,7 @@ impl Application {
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
                 label: None,
             })
-            .create_default_view();
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let state = ApplicationState {};
 
@@ -129,14 +130,14 @@ impl Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: Borrowed(&[RenderPassColorAttachmentDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color::WHITE),
                         store: true,
                     },
-                }]),
+                }],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {

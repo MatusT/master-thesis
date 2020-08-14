@@ -12,8 +12,7 @@ use rpdb;
 use rpdb::BoundingBox;
 use rpdb::FromRon;
 use wgpu::*;
-
-use std::borrow::Cow::Borrowed;
+use wgpu::util::*;
 
 use crate::hilbert;
 
@@ -53,7 +52,7 @@ impl Molecule {
             sum += lod.atoms().len() as u32;
         }
 
-        let atoms = device.create_buffer_with_data(cast_slice(&atoms), BufferUsage::STORAGE);
+        let atoms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&atoms), usage: BufferUsage::STORAGE });
 
         let bounding_box = *molecule.bounding_box();
         let bounding_radius = distance(&bounding_box.max, &bounding_box.min) / 2.0;
@@ -138,10 +137,10 @@ impl Structure {
             };
 
             transforms.push((
-                device.create_buffer_with_data(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
                     cast_slice(&molecule_model_matrices),
-                    BufferUsage::STORAGE,
-                ),
+                    usage: BufferUsage::STORAGE,
+                }),
                 molecule_model_matrices_len,
             ));
 
@@ -150,7 +149,7 @@ impl Structure {
             bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &per_molecule_bind_group_layout,
-                entries: Borrowed(&[
+                entries: (&[
                     BindGroupEntry {
                         binding: 0,
                         resource: BindingResource::Buffer(new_molecule.atoms().slice(..)),

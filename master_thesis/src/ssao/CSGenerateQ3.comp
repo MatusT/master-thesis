@@ -27,19 +27,24 @@ struct SSAOHits
 
 layout(set = 0, binding = 0, std140) uniform Constants
 {
-    CACAOConstants constants;
+    GlobalConstants constants;
 };
 
 // Samplers
-layout(set = 1, binding = 0) uniform sampler g_PointMirrorSampler;
-layout(set = 1, binding = 1) uniform sampler g_ViewspaceDepthTapSampler;
+layout(set = 0, binding = 1) uniform sampler g_PointMirrorSampler;
+layout(set = 0, binding = 2) uniform sampler g_ViewspaceDepthTapSampler;
+
+layout(set = 1, binding = 0, std140) uniform PerPassConstants
+{
+    PerPassConstants pass_constants;
+};
 
 // Input
-layout(set = 1, binding = 2) uniform texture2D g_ViewspaceDepthSource;
-layout(set = 1, binding = 3, r32f) uniform image2DArray g_DeinterlacedNormals;
+layout(set = 1, binding = 3) uniform texture2D g_ViewspaceDepthSource;
+layout(set = 1, binding = 4, r32f) uniform image2DArray g_DeinterlacedNormals;
 
 // Output
-layout(set = 1, binding = 4, rg32f) uniform writeonly image2D g_SSAOOutput;
+layout(set = 1, binding = 5, rg32f) uniform writeonly image2D g_SSAOOutput;
 
 vec3 NDCToViewspace(vec2 pos, float viewspaceDepth)
 {
@@ -158,7 +163,7 @@ void GenerateSSAOShadowsInternal(inout float outShadowTerm, inout vec4 outEdges,
 	vec3 pixCenterPos = NDCToViewspace(normalizedScreenPos, pixZ); // g
 
 	// Load this pixel's viewspace normal
-	ivec3 normalCoord = ivec3(SVPosui, constants.PassIndex);
+	ivec3 normalCoord = ivec3(SVPosui, pass_constants.PassIndex);
 	vec3 pixelNormal = imageLoad(g_DeinterlacedNormals, normalCoord).xyz;
 
 	// optimized approximation of:  vec2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace( normalizedScreenPos.xy + constants._ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
@@ -184,7 +189,7 @@ void GenerateSSAOShadowsInternal(inout float outShadowTerm, inout vec4 outEdges,
 
 		// load & update pseudo-random rotation matrix
 		uint pseudoRandomIndex = uint(SVPosRounded.y * 2 + SVPosRounded.x) % 5;
-		vec4 rs = constants.PatternRotScaleMatrices[pseudoRandomIndex];
+		vec4 rs = pass_constants.PatternRotScaleMatrices[pseudoRandomIndex];
 	    rotScale = mat2(vec2(rs.x * pixLookupRadiusMod, rs.y * pixLookupRadiusMod), vec2(rs.z * pixLookupRadiusMod, rs.w * pixLookupRadiusMod));
     }
 

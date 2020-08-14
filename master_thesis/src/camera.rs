@@ -2,9 +2,8 @@ use bytemuck::*;
 use nalgebra_glm as glm;
 use std::f32::consts::PI;
 use wgpu::*;
+use wgpu::util::DeviceExt;
 use winit;
-
-use std::borrow::Cow::Borrowed;
 
 use crate::ApplicationEvent;
 
@@ -75,17 +74,18 @@ impl RotationCamera {
             position,
         };
 
-        let buffer = device.create_buffer_with_data(
-            cast_slice(&[ubo]),
-            BufferUsage::UNIFORM | BufferUsage::COPY_DST,
-        );
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { 
+            label: None, 
+            contents: cast_slice(&[ubo]),
+            usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        });
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: Borrowed(&[BindGroupEntry {
+            entries: &[BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(buffer.slice(..)),
-            }]),
+            }],
             label: None,
         });
 

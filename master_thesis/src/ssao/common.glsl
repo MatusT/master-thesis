@@ -1,4 +1,4 @@
-struct CACAOConstants
+struct GlobalConstants
 {
 	mat4                  NormalsWorldToViewspaceMatrix;
 
@@ -24,9 +24,6 @@ struct CACAOConstants
 	float                 DepthPrecisionOffsetMod;
 	float                 NegRecEffectRadius;                     // -1.0 / EffectRadius
 	float                 DetailAOStrength;
-	int                   PassIndex;
-
-	vec4                  PatternRotScaleMatrices[5];
 
 	vec2                  SSAOBufferDimensions;
 	vec2                  SSAOBufferInverseDimensions;
@@ -42,6 +39,11 @@ struct CACAOConstants
 
 	vec2                  DeinterleavedDepthBufferOffset;
 	vec2                  DeinterleavedDepthBufferNormalisedOffset;
+};
+
+struct PerPassConstants {
+	vec4 PatternRotScaleMatrices[5];
+	int  PassIndex;
 };
 
 float saturate(float val) {
