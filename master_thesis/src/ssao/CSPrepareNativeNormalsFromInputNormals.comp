@@ -30,7 +30,7 @@ vec3 DecodeNormal(vec3 encodedNormal)
 vec3 PrepareNormalsFromInputNormalsLoadNormal(ivec2 pos)
 {
     vec3 encodedNormal = texture(sampler2D(g_PrepareNormalsFromNormalsInput, g_PointClampSampler), (vec2(pos) + vec2(0.5)) * constants.OutputBufferInverseDimensions).xyz;
-    return DecodeNormal(encodedNormal);
+    return normalize(encodedNormal);
 }
 
 void main()

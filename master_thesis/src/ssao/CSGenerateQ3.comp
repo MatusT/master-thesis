@@ -30,21 +30,16 @@ layout(set = 0, binding = 0, std140) uniform Constants
     GlobalConstants constants;
 };
 
-// Samplers
 layout(set = 0, binding = 1) uniform sampler g_PointMirrorSampler;
 layout(set = 0, binding = 2) uniform sampler g_ViewspaceDepthTapSampler;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2DArray g_DeinterlacedNormals;
 
-layout(set = 1, binding = 0, std140) uniform PerPassConstants
+layout(set = 1, binding = 0, std140) uniform PassConstants
 {
     PerPassConstants pass_constants;
 };
-
-// Input
-layout(set = 1, binding = 3) uniform texture2D g_ViewspaceDepthSource;
-layout(set = 1, binding = 4, r32f) uniform image2DArray g_DeinterlacedNormals;
-
-// Output
-layout(set = 1, binding = 5, rg32f) uniform writeonly image2D g_SSAOOutput;
+layout(set = 1, binding = 1) uniform texture2D g_ViewspaceDepthSource;
+layout(set = 1, binding = 2, rg32f) uniform image2D g_SSAOOutput;
 
 vec3 NDCToViewspace(vec2 pos, float viewspaceDepth)
 {
@@ -164,7 +159,7 @@ void GenerateSSAOShadowsInternal(inout float outShadowTerm, inout vec4 outEdges,
 
 	// Load this pixel's viewspace normal
 	ivec3 normalCoord = ivec3(SVPosui, pass_constants.PassIndex);
-	vec3 pixelNormal = imageLoad(g_DeinterlacedNormals, normalCoord).xyz;
+	vec3 pixelNormal = normalize(imageLoad(g_DeinterlacedNormals, normalCoord).xyz);
 
 	// optimized approximation of:  vec2 pixelDirRBViewspaceSizeAtCenterZ = NDCToViewspace( normalizedScreenPos.xy + constants._ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
 	// const vec2 pixelDirRBViewspaceSizeAtCenterZ = pixCenterPos.z * constants.NDCToViewMul * constants.Viewport2xPixelSize;
@@ -180,13 +175,6 @@ void GenerateSSAOShadowsInternal(inout float outShadowTerm, inout vec4 outEdges,
 	// calculate samples rotation/scaling
 	mat2 rotScale;
 	{
-		// reduce effect radius near the screen edges slightly; ideally, one would render a larger depth buffer (5% on each side) instead
-		// {
-		// 	float nearScreenBorder = min(min(depthBufferUV.x, 1.0 - depthBufferUV.x), min(depthBufferUV.y, 1.0 - depthBufferUV.y));
-		// 	nearScreenBorder = saturate(10.0 * nearScreenBorder + 0.6);
-		// 	pixLookupRadiusMod *= nearScreenBorder;
-		// }
-
 		// load & update pseudo-random rotation matrix
 		uint pseudoRandomIndex = uint(SVPosRounded.y * 2 + SVPosRounded.x) % 5;
 		vec4 rs = pass_constants.PatternRotScaleMatrices[pseudoRandomIndex];
@@ -295,7 +283,7 @@ void GenerateSSAOShadowsInternal(inout float outShadowTerm, inout vec4 outEdges,
 	obscurance = min(obscurance, constants.EffectShadowClamp);
 
 	// fadeout
-	obscurance *= fadeOut;
+	// obscurance *= fadeOut;
 
 	// conceptually switch to occlusion with the meaning being visibility (grows with visibility, occlusion == 1 implies full visibility), 
 	// to be in line with what is more commonly used.

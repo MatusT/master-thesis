@@ -1,5 +1,5 @@
 use bytemuck::*;
-use nalgebra_glm::{Mat4, TVec2, Vec2, Vec4, clamp_scalar};
+use nalgebra_glm::{Mat4, TVec2, Vec2, vec2, Vec4, clamp_scalar};
 use wgpu::*;
 use wgpu::util::DeviceExt;
 #[repr(C)]
@@ -29,6 +29,7 @@ struct Constants {
     DepthPrecisionOffsetMod: f32,
     NegRecEffectRadius: f32, // -1.0 / EffectRadius
     DetailAOStrength: f32,
+    padd0: f32,
 
     SSAOBufferDimensions: Vec2,
     SSAOBufferInverseDimensions: Vec2,
@@ -73,6 +74,7 @@ impl PerPassConstants {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 struct BufferSizeInfo {
     inputOutputBufferWidth: u32,
     inputOutputBufferHeight: u32,
@@ -138,43 +140,56 @@ impl BufferSizeInfo {
 
 pub struct Settings {
     ///
-    projection: Mat4,
+    pub projection: Mat4,
+
     ///
-    NormalsToViewspace: Mat4,
+    pub NormalsToViewspace: Mat4,
 
     /// [0.0,  ~ ] World (view) space size of the occlusion sphere.
-    radius: f32,
+    pub radius: f32,
+    
     /// [0.0, 5.0] Effect strength linear multiplier
-    shadowMultiplier: f32,
+    pub shadowMultiplier: f32,
+
     /// [0.5, 5.0] Effect strength pow modifier
-    shadowPower: f32,
+    pub shadowPower: f32,
+
     /// [0.0, 1.0] Effect max limit (applied after multiplier but before blur)
-    shadowClamp: f32,
+    pub shadowClamp: f32,
+
     /// [0.0, 0.2] Limits self-shadowing (makes the sampling area less of a hemisphere, more of a spherical cone, to avoid self-shadowing and various artifacts due to low tessellation and depth buffer imprecision, etc.)
-    horizonAngleThreshold: f32,
+    pub horizonAngleThreshold: f32,
+
     /// [0.0,  ~ ] Distance to start start fading out the effect.
-    fadeOutFrom: f32,
+    pub fadeOutFrom: f32,
+
     /// [0.0,  ~ ] Distance at which the effect is faded out.
-    fadeOutTo: f32,
+    pub fadeOutTo: f32,
+
     /// [  0,   8] Number of edge-sensitive smart blur passes to apply
-    blurPassCount: u32,
+    pub blurPassCount: u32,
+
     /// [0.0, 1.0] (How much to bleed over edges: 1: not at all, 0.5: half-half: f32, 0.0: completely ignore edges)
-    sharpness: f32,
+    pub sharpness: f32,
+
     /// [0.0, 5.0] Used for high-res detail AO using neighboring depth pixels: adds a lot of detail but also reduces temporal stability (adds aliasing).
-    detailShadowStrength: f32,
+    pub detailShadowStrength: f32,
+
     /// This option should be set to true if FidelityFX-CACAO should reconstruct a normal buffer from the depth buffer. It is required to be true if no normal buffer is provided.
-    generateNormals: bool,
+    pub generateNormals: bool,
+
     /// [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving Gaussian blur term. Should be greater than 0.0.
-    bilateralSigmaSquared: f32,
+    pub bilateralSigmaSquared: f32,
+
     /// [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving similarity weighting for neighbouring pixels. Should be greater than 0.0.
-    bilateralSimilarityDistanceSigma: f32,
+    pub bilateralSimilarityDistanceSigma: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            projection: Mat4::default(),
-            NormalsToViewspace: Mat4::default(),
+            projection: Mat4::identity(),
+            NormalsToViewspace: Mat4::identity(),
             radius: 1.2,
             shadowMultiplier: 1.0,
             shadowPower: 1.5,
@@ -206,14 +221,18 @@ pub struct SsaoModule {
 
     ssao_pass: ComputePipeline,
     ssao_bgl: BindGroupLayout,
+    ssao_per_pass_bgl: BindGroupLayout,
 
     point_clamp_sampler: Sampler,
     point_mirror_sampler: Sampler,
     viewspace_depth_sampler: Sampler,
 
-    deinterlaced_normals: Texture,
-    halfdepths: Vec<Texture>,
-    final_results: Vec<Texture>,
+    deinterlaced_normals: TextureView,
+    halfdepths: Texture,
+    halfdepths_mips: Vec<TextureView>,
+    halfdepths_arrays: Vec<TextureView>,
+    final_results: Texture,
+    final_results_views: Vec<TextureView>,
 
     constants: Constants,
     constants_buffer: Buffer,
@@ -232,30 +251,26 @@ impl SsaoModule {
             device.create_shader_module(include_spirv!("prepare_depths.comp.spv"));
         let ssao_shader = device.create_shader_module(include_spirv!("ssao.comp.spv"));
 
-        let constants_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Constants BGL"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStage::all(),
-                ty: BindingType::UniformBuffer {
-                    dynamic: false,
-                    min_binding_size: Some(Constants::size()),
-                },
-                count: None,
-            }],
-        });
-
         let prepare_normals_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Prepare normals BGL"),
             entries: &[
                 BindGroupLayoutEntry {
                     binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(Constants::size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::Sampler { comparison: false },
                     count: None,
                 },
                 BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: 2,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::SampledTexture {
                         dimension: TextureViewDimension::D2,
@@ -265,7 +280,7 @@ impl SsaoModule {
                     count: None,
                 },
                 BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 3,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
                         dimension: TextureViewDimension::D2Array,
@@ -278,7 +293,7 @@ impl SsaoModule {
         });
         let prepare_normals_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&constants_bgl, &prepare_normals_bgl],
+            bind_group_layouts: &[&prepare_normals_bgl],
             push_constant_ranges: &[],
         });
         let prepare_normals_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -295,27 +310,26 @@ impl SsaoModule {
             entries: &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(Constants::size()),
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
-                        multisampled: false,
-                    },
+                    ty: BindingType::Sampler { comparison: false },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
-                        format: TextureFormat::R32Float,
-                        readonly: false,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
                     },
                     count: None,
                 },
@@ -349,11 +363,21 @@ impl SsaoModule {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        dimension: TextureViewDimension::D2Array,
+                        format: TextureFormat::R32Float,
+                        readonly: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let prepare_depths_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&constants_bgl, &prepare_depths_bgl],
+            bind_group_layouts: &[&prepare_depths_bgl],
             push_constant_ranges: &[],
         });
         let prepare_depths_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -370,8 +394,11 @@ impl SsaoModule {
             entries: &[
                 BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(Constants::size()),
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
@@ -383,6 +410,36 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        dimension: TextureViewDimension::D2Array,
+                        format: TextureFormat::R32Float,
+                        readonly: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let ssao_per_pass_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("SSAO PER PASS BGL"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(PerPassConstants::size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::COMPUTE,
                     ty: BindingType::SampledTexture {
                         dimension: TextureViewDimension::D2,
                         component_type: TextureComponentType::Float,
@@ -391,17 +448,7 @@ impl SsaoModule {
                     count: None,
                 },
                 BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2Array,
-                        component_type: TextureComponentType::Float,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 4,
+                    binding: 2,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
                         dimension: TextureViewDimension::D2,
@@ -414,7 +461,7 @@ impl SsaoModule {
         });
         let ssao_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&constants_bgl, &ssao_bgl],
+            bind_group_layouts: &[&ssao_bgl, &ssao_per_pass_bgl],
             push_constant_ranges: &[],
         });
         let ssao_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -465,61 +512,101 @@ impl SsaoModule {
         let deinterlaced_normals = device.create_texture(&TextureDescriptor {
             label: Some("Deinterlaced Normals"),
             size: Extent3d {
-                width,
-                height,
+                width: (width + 1) / 2,
+                height: (height + 1) / 2,
                 depth: 4,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Snorm,
+            format: TextureFormat::Rgba32Float,
+            usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+        }).create_view(&TextureViewDescriptor {
+            format: Some(TextureFormat::Rgba32Float),
+            dimension: Some(TextureViewDimension::D2Array),
+            aspect: TextureAspect::All,
+            .. Default::default()
+        });
+
+        let halfdepths = device.create_texture(&TextureDescriptor {
+            label: Some("Half depths"),
+            size: Extent3d {
+                width: (width + 1) / 2,
+                height: (height + 1) / 2,
+                depth: 4,
+            },
+            mip_level_count: 4,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R32Float,
             usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
         });
 
-        let mut halfdepths = Vec::new();
-        let mut final_results = Vec::new();
-        for _ in 0..4 {
-            halfdepths.push(device.create_texture(&TextureDescriptor {
-                label: Some("Half depths"),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth: 4,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::R16Float,
-                usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+        let mut final_results = device.create_texture(&TextureDescriptor {
+            label: Some("Final SSAO"),
+            size: Extent3d {
+                width: (width + 1) / 2,
+                height: (height + 1) / 2,
+                depth: 4,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rg8Unorm,
+            usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+        });
+
+        let mut halfdepths_mips = Vec::new();
+        let mut halfdepths_arrays = Vec::new();
+        let mut final_results_views = Vec::new();
+        for pass in 0..4 {
+            halfdepths_mips.push(halfdepths.create_view(&TextureViewDescriptor {
+                format: Some(TextureFormat::R32Float),
+                dimension: Some(TextureViewDimension::D2Array),
+                aspect: TextureAspect::All,
+                base_mip_level: pass,
+                level_count: std::num::NonZeroU32::new(1),
+                base_array_layer: 0,
+                array_layer_count: None,
+                .. Default::default()
             }));
 
-            final_results.push(device.create_texture(&TextureDescriptor {
-                label: Some("Final SSAO"),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth: 4,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rg8Unorm,
-                usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+            halfdepths_arrays.push(halfdepths.create_view(&TextureViewDescriptor {
+                format: Some(TextureFormat::R32Float),
+                dimension: Some(TextureViewDimension::D2Array),
+                aspect: TextureAspect::All,
+                base_mip_level: 0,
+                level_count: None,
+                base_array_layer: pass,
+                array_layer_count: std::num::NonZeroU32::new(1),
+                .. Default::default()
+            }));
+
+            final_results_views.push(final_results.create_view(&TextureViewDescriptor {
+                format: Some(TextureFormat::Rg8Unorm),
+                dimension: Some(TextureViewDimension::D2Array),
+                aspect: TextureAspect::All,
+                base_array_layer: pass,
+                array_layer_count: std::num::NonZeroU32::new(1),
+                .. Default::default()
             }));
         }
 
         let constants = Constants::default();
-        let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&[constants]), usage: BufferUsage::UNIFORM });
+        let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&[constants]), usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST });
 
-        let pass_constants = [PerPassConstants::default(); 4];
+        let mut pass_constants = [PerPassConstants::default(); 4];
         let mut pass_constants_buffers = Vec::new();
         for i in 0..4 {
+            pass_constants[i].PassIndex = i as i32;
             pass_constants_buffers.push(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { 
                 label: None, 
                 contents: cast_slice(&[pass_constants[i]]), 
-                usage: BufferUsage::UNIFORM 
+                usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST
             }));
         }
+
+        println!("{:?}", buffer_size_info);
 
         Self {
             width,
@@ -535,6 +622,7 @@ impl SsaoModule {
 
             ssao_pass,
             ssao_bgl,
+            ssao_per_pass_bgl,
 
             point_clamp_sampler,
             point_mirror_sampler,
@@ -542,7 +630,10 @@ impl SsaoModule {
 
             deinterlaced_normals,
             halfdepths,
+            halfdepths_mips,
+            halfdepths_arrays,
             final_results,
+            final_results_views,
 
             constants,
             constants_buffer,
@@ -558,15 +649,19 @@ impl SsaoModule {
         constants.NormalsToViewspace = settings.NormalsToViewspace;
         let depthLinearizeMul = -settings.projection[(2, 3)];
         let mut depthLinearizeAdd = -settings.projection[(2, 2)];
-        if depthLinearizeMul * depthLinearizeAdd < 0.0 {
+        if depthLinearizeMul * depthLinearizeAdd <= 0.0 {
             depthLinearizeAdd = -depthLinearizeAdd;
         }
         constants.DepthUnpackConsts[0] = depthLinearizeMul;
         constants.DepthUnpackConsts[1] = depthLinearizeAdd;
 
-        let tanHalfFOVY = 1.0 / settings.projection[(1, 1)];    // = tanf( drawContext.Camera.GetYFOV( ) * 0.5f );
-        let tanHalfFOVX = 1.0 / settings.projection[(0, 0)];    // = tanHalfFOVY * drawContext.Camera.GetAspect( );
+        let CameraTanHalfFOV = vec2(1.0 / settings.projection[(1, 1)], 1.0 / settings.projection[(0, 0)]);
     
+        constants.NDCToViewMul[0] = CameraTanHalfFOV[0] * 2.0;
+        constants.NDCToViewMul[1] = CameraTanHalfFOV[1] * -2.0;
+        constants.NDCToViewAdd[0] = CameraTanHalfFOV[0] * -1.0;
+        constants.NDCToViewAdd[1] = CameraTanHalfFOV[1] * 1.0;
+
         let ratio = (self.buffer_size_info.inputOutputBufferWidth as f32) / (self.buffer_size_info.depthBufferWidth as f32);
         let border = (1.0 - ratio) / 2.0;
         for i in 0..2
@@ -586,11 +681,10 @@ impl SsaoModule {
         // 1.2 seems to be around the best trade off - 1.0 means on-screen radius will stop/slow growing when the camera is at 1.0 distance, so, depending on FOV, basically filling up most of the screen
         // This setting is viewspace-dependent and not screen size dependent intentionally, so that when you change FOV the effect stays (relatively) similar.
         let mut effectSamplingRadiusNearLimit = settings.radius * 1.2;
-    
+        effectSamplingRadiusNearLimit /= CameraTanHalfFOV[1]; // to keep the effect same regardless of FOV
+
         // if the depth precision is switched to 32bit float, this can be set to something closer to 1 (0.9999 is fine)
-        constants.DepthPrecisionOffsetMod = 0.9999;
-    
-        effectSamplingRadiusNearLimit /= tanHalfFOVY; // to keep the effect same regardless of FOV
+        constants.DepthPrecisionOffsetMod = 0.9999;   
         
         constants.EffectSamplingRadiusNearLimitRec = 1.0 / effectSamplingRadiusNearLimit;
         
@@ -609,6 +703,11 @@ impl SsaoModule {
         constants.DepthBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.depthBufferWidth as f32);
         constants.DepthBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.depthBufferHeight as f32);
     
+        constants.OutputBufferDimensions[0] = self.buffer_size_info.depthBufferWidth as f32;
+        constants.OutputBufferDimensions[1] = self.buffer_size_info.depthBufferHeight as f32;
+        constants.OutputBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.depthBufferWidth as f32);
+        constants.OutputBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.depthBufferHeight as f32);
+
         constants.DeinterleavedDepthBufferDimensions[0] = self.buffer_size_info.deinterleavedDepthBufferWidth as f32;
         constants.DeinterleavedDepthBufferDimensions[1] = self.buffer_size_info.deinterleavedDepthBufferHeight as f32;
         constants.DeinterleavedDepthBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.deinterleavedDepthBufferWidth as f32);
@@ -650,19 +749,123 @@ impl SsaoModule {
     pub fn draw(&mut self, device: &Device, queue: &Queue, encoder: &mut CommandEncoder, settings: &Settings, depth: &TextureView, normals: &TextureView) {
         self.update_constants(&queue, settings);
 
+        // println!("{:#?}", self.constants);
+
         // Create bind groups
-        // let prepare_depths_bg = device.create_bind_group(&BindGroup)
+        let prepare_depths_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.prepare_depths_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.point_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(&depth),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(&self.halfdepths_mips[0]),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(&self.halfdepths_mips[1]),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(&self.halfdepths_mips[2]),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: BindingResource::TextureView(&self.halfdepths_mips[3]),
+                },
+            ],
+        });
+
+        let prepare_normals_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.prepare_normals_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.point_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(&normals),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(&self.deinterlaced_normals),
+                },
+            ],
+        });
+
+        let ssao_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.ssao_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.point_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&self.viewspace_depth_sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(&self.deinterlaced_normals),
+                },
+            ],
+        });
+
+        let mut ssao_pass_bgs = Vec::new();
+        for pass in 0..4 {
+            ssao_pass_bgs.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &self.ssao_per_pass_bgl,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::Buffer(self.pass_constants_buffers[pass].slice(..))
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(&self.halfdepths_arrays[pass]),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::TextureView(&self.final_results_views[pass]),
+                    },
+                ],
+            }));
+        }
 
         let dispatch_size = |tile_size: u32, total_size: u32| -> u32
         {
-            return (total_size + tile_size - 1) / total_size;
+            return (total_size + tile_size - 1) / tile_size;
         };
 
         let mut cpass = encoder.begin_compute_pass();
 
         // Prepare depths
         {
-            cpass.set_pipeline(&self.prepare_normals_pass);
+            cpass.set_pipeline(&self.prepare_depths_pass);
+            cpass.set_bind_group(0, &prepare_depths_bg, &[]);
 
             let x = dispatch_size(8, self.buffer_size_info.deinterleavedDepthBufferWidth);
             let y = dispatch_size(8, self.buffer_size_info.deinterleavedDepthBufferHeight);
@@ -671,7 +874,8 @@ impl SsaoModule {
 
         // Prepare normals from input normals
         {
-            cpass.set_pipeline(&self.prepare_depths_pass);
+            cpass.set_pipeline(&self.prepare_normals_pass);
+            cpass.set_bind_group(0, &prepare_normals_bg, &[]);
 
             let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
             let y = dispatch_size(8, self.buffer_size_info.ssaoBufferHeight);
@@ -679,8 +883,10 @@ impl SsaoModule {
         }
 
         // SSAO
-        for pass in 0..4 {
-            cpass.set_pipeline(&self.ssao_pass);
+        cpass.set_pipeline(&self.ssao_pass);
+        cpass.set_bind_group(0, &ssao_bg, &[]);
+        for pass in 0..4 {            
+            cpass.set_bind_group(1, &ssao_pass_bgs[pass], &[]);
 
             let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
             let y = dispatch_size(8, self.buffer_size_info.ssaoBufferHeight);

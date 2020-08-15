@@ -21,9 +21,10 @@ layout(set = 2, binding = 0, std140) uniform StructureGlobals {
 structure;
 
 layout(location = 0) out vec2 uv;
-layout(location = 1) out vec4 position_clip_space;
-layout(location = 2) out flat float scale;
-layout(location = 3) out flat vec3 color;
+layout(location = 1) out flat vec4 center_vs;
+layout(location = 2) out vec4 position_vs;
+layout(location = 3) out vec4 position_cs;
+layout(location = 4) out flat float scale;
 
 const vec2 vertices[3] = {
     vec2(-1.72, -1.0),
@@ -74,26 +75,19 @@ void main() {
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
   const mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
-  const vec4 world_position =
+
+  const vec4 center_position =
       model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
   scale = positions[gl_VertexIndex / 3].w;
 
   const vec2 vertex = scale * vertices[gl_VertexIndex % 3];
-  const vec4 position_worldspace = vec4(
-      world_position.xyz + vertex.x * camera_right + vertex.y * camera_up, 1.0);
-
-  // uint mhash = hash(gl_InstanceIndex);
-  // color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >>
-  // 16) & 255)) / 255.0;
-  //   int face = vector_cube_face(model_matrix[3].xyz);
-  // uint mhash = hash(gl_InstanceIndex / 2048);
-  // color = vec3(float(mhash & 255), float((mhash >> 8) & 255),
-  //              float((mhash >> 16) & 255)) /
-  //         255.0;
-  // color = vec3((gl_InstanceIndex * 10.0) / 25.0);
-  color = vec3(1.0);
+  const vec4 position_ws = vec4(
+      center_position.xyz + vertex.x * camera_right + vertex.y * camera_up, 1.0);
 
   uv = vertex;
-  position_clip_space = projection_view * position_worldspace;
-  gl_Position = position_clip_space;
+  center_vs = view * center_position;
+  position_vs = view * position_ws;
+  position_cs = projection_view * position_ws;
+
+  gl_Position = position_cs;
 }

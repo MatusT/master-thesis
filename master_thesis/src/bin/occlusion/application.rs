@@ -3,6 +3,7 @@ use master_thesis::pipelines::SphereBillboardsPipeline;
 use master_thesis::pvs::*;
 use master_thesis::structure::*;
 use master_thesis::ApplicationEvent;
+use master_thesis::ssao;
 
 use bytemuck::cast_slice;
 use nalgebra_glm::*;
@@ -27,6 +28,8 @@ pub struct Application {
 
     depth_texture: TextureView,
     multisampled_texture: TextureView,
+    normals_texture: TextureView,
+    output_texture: TextureView,
 
     camera: RotationCamera,
 
@@ -39,6 +42,9 @@ pub struct Application {
     covid_transforms: Vec<Mat4>,
     covid_transforms_gpu: Buffer,
     covid_transforms_bgs: Vec<BindGroup>,
+
+    ssao_module: ssao::SsaoModule,
+    ssao_settings: ssao::Settings,
 }
 
 impl Application {
@@ -106,11 +112,11 @@ impl Application {
             });
 
         // Camera
-        let camera = RotationCamera::new(
+        let mut camera = RotationCamera::new(
             &device,
             &camera_bind_group_layout,
             &reversed_infinite_perspective_rh_zo(width as f32 / height as f32, 0.785398163, 0.1),
-            1500.0,
+            6.0 * 1500.0,
             100.0,
         );
 
@@ -145,7 +151,7 @@ impl Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT,
+                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -162,6 +168,38 @@ impl Application {
                 format: swapchain_format,
                 usage: TextureUsage::OUTPUT_ATTACHMENT,
                 label: None,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let normals_texture = device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba32Float,
+                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED | TextureUsage::STORAGE,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let output_texture = device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba32Float,
+                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED | TextureUsage::STORAGE,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -208,6 +246,11 @@ impl Application {
             }));
         }
 
+        let ssao_module = ssao::SsaoModule::new(&device, width, height);
+        let mut ssao_settings = ssao::Settings::default();
+        ssao_settings.radius = 10.0;
+        ssao_settings.projection = camera.ubo().projection;
+
         let state = ApplicationState {
             draw_lod: true,
             draw_occluded: false,
@@ -224,6 +267,8 @@ impl Application {
 
             depth_texture,
             multisampled_texture,
+            normals_texture,
+            output_texture,
 
             camera,
 
@@ -236,6 +281,9 @@ impl Application {
             covid_transforms,
             covid_transforms_gpu,
             covid_transforms_bgs,
+
+            ssao_module,
+            ssao_settings,
         }
     }
 
@@ -296,10 +344,10 @@ impl Application {
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &frame,
+                    attachment: &self.normals_texture,
                     resolve_target: None,
                     ops: Operations {
-                        load: LoadOp::Clear(Color::WHITE),
+                        load: LoadOp::Clear(Color::TRANSPARENT),
                         store: true,
                     },
                 }],
@@ -339,6 +387,8 @@ impl Application {
                 }
             }
         }
+
+        self.ssao_module.draw(&self.device, &self.queue, &mut encoder, &self.ssao_settings, &self.depth_texture, &self.normals_texture);
 
         self.queue.submit(Some(encoder.finish()));
     }

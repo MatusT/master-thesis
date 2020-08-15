@@ -8,11 +8,14 @@ layout(set = 0, binding = 0, std140) uniform CameraMatrices {
 } camera;
 
 layout(location = 0) in vec2 uv;
-layout(location = 1) in vec4 position_clip_space;
-layout(location = 2) in flat float scale;
-layout(location = 3) in flat vec3 color;
+layout(location = 1) in flat vec4 center_vs;
+layout(location = 2) in vec4 position_vs;
+layout(location = 3) in vec4 position_cs;
+layout(location = 4) in flat float scale;
 
-layout(location = 0) out vec4 out_color;
+#ifdef OUTPUT_NORMALS
+layout(location = 0) out vec4 out_normal;
+#endif
 
 void main()
 {
@@ -22,13 +25,12 @@ void main()
 	}	
 	
 	const float z = scale - len;
-	const vec3 normal = normalize(vec3(uv.x, uv.y, z));
 	
 	// Depth Adjustment
-	const vec4 fragment_position_clip = position_clip_space + camera.projection[2] * z;
+	const vec4 fragment_position_clip = position_cs + camera.projection[2] * z;
 	gl_FragDepth = fragment_position_clip.z / fragment_position_clip.w;
 
-	const float diffuse = max(dot(normal, vec3(0.0, 0.0, 1.0)), 0.0);
-	
-	out_color = vec4(color * diffuse, 1.0);
+	#ifdef OUTPUT_NORMALS
+	out_normal = vec4(normalize(position_vs.xyz - center_vs.xyz), 0.0);
+	#endif
 }
