@@ -1,0 +1,88 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "consts.glsl"
+#include "common.glsl"
+
+layout(set = 0, binding = 0, std140) uniform Constants
+{
+    GlobalConstants constants;
+};
+
+// Samplers
+layout(set = 0, binding = 1) uniform sampler g_PointClampSampler;
+layout(set = 0, binding = 2) uniform sampler g_LinearClampSampler;
+
+// Input
+layout(set = 0, binding = 3) uniform texture2DArray g_ApplyFinal;
+
+// Output
+layout(set = 0, binding = 4, r32f) uniform writeonly image2D g_ApplyOutput;
+
+vec4 UnpackEdges(float _packedVal)
+{
+    uint packedVal = uint(_packedVal * 255.5);
+    vec4 edgesLRTB;
+    edgesLRTB.x = float((packedVal >> (6u & 31u)) & 3u) / 3.0;
+    edgesLRTB.y = float((packedVal >> (4u & 31u)) & 3u) / 3.0;
+    edgesLRTB.z = float((packedVal >> (2u & 31u)) & 3u) / 3.0;
+    edgesLRTB.w = float((packedVal >> (0u & 31u)) & 3u) / 3.0;
+    return clamp(edgesLRTB + vec4(constants.InvSharpness), vec4(0.0), vec4(1.0));
+}
+
+void main()
+{
+    uvec2 coord = gl_GlobalInvocationID.xy;
+    vec2 inPos = vec2(coord);
+
+    uvec2 pixPos = coord;
+    uvec2 pixPosHalf = pixPos / uvec2(2u);
+
+    // calculate index in the four deinterleaved source array texture
+    int mx = int(pixPos.x % 2u);
+    int my = int(pixPos.y % 2u);
+    int ic = mx + (my * 2);               // center index
+    int ih = (1 - mx) + (my * 2);         // neighbouring, horizontal
+    int iv = mx + ((1 - my) * 2);         // neighbouring, vertical
+    int id = (1 - mx) + ((1 - my) * 2);   // diagonal
+    ivec4 _380 = ivec4(int(pixPosHalf.x), int(pixPosHalf.y), ic, 0);
+
+    vec2 centerVal = texelFetch(sampler2DArray(g_ApplyFinal, g_DummySampler), _380.xyz, _380.w).xy;
+    float ao = centerVal.x;
+
+    vec4 edgesLRTB = UnpackEdges(centerVal.y);
+
+    // return 1.0 - float4( edgesLRTB.x, edgesLRTB.y * 0.5 + edgesLRTB.w * 0.5, edgesLRTB.z, 0.0 ); // debug show edges
+
+    // convert index shifts to sampling offsets
+    float fmx = float(mx);
+    float fmy = float(my);
+
+    // in case of an edge, push sampling offsets away from the edge (towards pixel center)
+    float fmxe = edgesLRTB.y - edgesLRTB.x;
+    float fmye = edgesLRTB.w - edgesLRTB.z;
+
+    // calculate final sampling offsets and sample using bilinear filter
+    vec2 uvH = ((inPos + vec2((fmx + fmxe) - 0.5, 0.5 - fmy)) * 0.5) * constants.SSAOBufferInverseDimensions;
+    float aoH = textureLod(sampler2DArray(g_ApplyFinal, g_LinearClampSampler), vec3(uvH, float(ih)), 0.0).x;
+    vec2 uvV = ((inPos + vec2(0.5 - fmx, (fmy - 0.5) + fmye)) * 0.5) * constants.SSAOBufferInverseDimensions;
+    float aoV = textureLod(sampler2DArray(g_ApplyFinal, g_LinearClampSampler), vec3(uvV, float(iv)), 0.0).x;
+    vec2 uvD = ((inPos + vec2((fmx - 0.5) + fmxe, (fmy - 0.5) + fmye)) * 0.5) * constants.SSAOBufferInverseDimensions;
+    float aoD = textureLod(sampler2DArray(g_ApplyFinal, g_LinearClampSampler), vec3(uvD, float(id)), 0.0).x;
+
+    // reduce weight for samples near edge - if the edge is on both sides, weight goes to 0
+    vec4 blendWeights;
+    blendWeights.x = 1.0;
+    blendWeights.y = (edgesLRTB.x + edgesLRTB.y) * 0.75;
+    blendWeights.z = (edgesLRTB.z + edgesLRTB.w) * 0.75;
+    blendWeights.w = (blendWeights.y + blendWeights.z) * 0.5;
+
+    // calculate weighted average
+    float blendWeightsSum = dot(blendWeights, vec4(1.0));
+    ao = dot(vec4(ao, aoH, aoV, aoD), blendWeights) / blendWeightsSum;
+
+    imageStore(g_ApplyOutput, ivec2(coord), vec4(ao));
+}
+

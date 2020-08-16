@@ -206,7 +206,6 @@ impl Default for Settings {
         }
     }
 }
-
 pub struct SsaoModule {
     width: u32,
     height: u32,
@@ -223,16 +222,31 @@ pub struct SsaoModule {
     ssao_bgl: BindGroupLayout,
     ssao_per_pass_bgl: BindGroupLayout,
 
+    blur_pass: ComputePipeline,
+    blur_bgl: BindGroupLayout,
+    blur_per_pass_bgl: BindGroupLayout,
+
+    apply_pass: ComputePipeline,
+    apply_bgl: BindGroupLayout,
+
     point_clamp_sampler: Sampler,
     point_mirror_sampler: Sampler,
+    linear_clamp_sampler: Sampler,
     viewspace_depth_sampler: Sampler,
 
     deinterlaced_normals: TextureView,
+
     halfdepths: Texture,
     halfdepths_mips: Vec<TextureView>,
     halfdepths_arrays: Vec<TextureView>,
-    final_results: Texture,
-    final_results_views: Vec<TextureView>,
+
+    ssao_results: Texture,
+    ssao_results_views: Vec<TextureView>,
+
+    blurred_results: Texture,
+    blurred_results_views: Vec<TextureView>,
+
+    pub final_result: TextureView,
 
     constants: Constants,
     constants_buffer: Buffer,
@@ -250,6 +264,8 @@ impl SsaoModule {
         let prepare_depths_shader =
             device.create_shader_module(include_spirv!("prepare_depths.comp.spv"));
         let ssao_shader = device.create_shader_module(include_spirv!("ssao.comp.spv"));
+        let blur_shader = device.create_shader_module(include_spirv!("blur.comp.spv"));
+        let apply_shader = device.create_shader_module(include_spirv!("apply.comp.spv"));
 
         let prepare_normals_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Prepare normals BGL"),
@@ -473,6 +489,125 @@ impl SsaoModule {
             },
         });
 
+        let blur_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("BLUR BGL"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(Constants::size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+            ],
+        });
+        let blur_per_pass_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("BLUR PER PASS BGL"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        dimension: TextureViewDimension::D2,
+                        format: TextureFormat::Rg32Float,
+                        readonly: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let blur_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&blur_bgl, &blur_per_pass_bgl],
+            push_constant_ranges: &[],
+        });
+        let blur_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&blur_pl),
+            compute_stage: ProgrammableStageDescriptor {
+                module: &blur_shader,
+                entry_point: "main",
+            },
+        });
+
+        let apply_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("APPLY BGL"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: Some(Constants::size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::SampledTexture {
+                        dimension: TextureViewDimension::D2Array,
+                        component_type: TextureComponentType::Float,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: ShaderStage::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        dimension: TextureViewDimension::D2,
+                        format: TextureFormat::R32Float,
+                        readonly: false
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let apply_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&apply_bgl],
+            push_constant_ranges: &[],
+        });
+        let apply_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&apply_pl),
+            compute_stage: ProgrammableStageDescriptor {
+                module: &apply_shader,
+                entry_point: "main",
+            },
+        });
+
         let point_clamp_sampler = device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
@@ -509,6 +644,19 @@ impl SsaoModule {
             ..Default::default()
         });
 
+        let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            mipmap_filter: FilterMode::Linear,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: std::f32::MAX,
+            ..Default::default()
+        });
+
+
         let deinterlaced_normals = device.create_texture(&TextureDescriptor {
             label: Some("Deinterlaced Normals"),
             size: Extent3d {
@@ -542,8 +690,22 @@ impl SsaoModule {
             usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
         });
 
-        let mut final_results = device.create_texture(&TextureDescriptor {
+        let ssao_results = device.create_texture(&TextureDescriptor {
             label: Some("Final SSAO"),
+            size: Extent3d {
+                width: (width + 1) / 2,
+                height: (height + 1) / 2,
+                depth: 4,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rg8Unorm,
+            usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+        });
+
+        let blurred_results = device.create_texture(&TextureDescriptor {
+            label: Some("Blurred SSAO"),
             size: Extent3d {
                 width: (width + 1) / 2,
                 height: (height + 1) / 2,
@@ -558,7 +720,8 @@ impl SsaoModule {
 
         let mut halfdepths_mips = Vec::new();
         let mut halfdepths_arrays = Vec::new();
-        let mut final_results_views = Vec::new();
+        let mut ssao_results_views = Vec::new();
+        let mut blurred_results_views = Vec::new();
         for pass in 0..4 {
             halfdepths_mips.push(halfdepths.create_view(&TextureViewDescriptor {
                 format: Some(TextureFormat::R32Float),
@@ -582,7 +745,7 @@ impl SsaoModule {
                 .. Default::default()
             }));
 
-            final_results_views.push(final_results.create_view(&TextureViewDescriptor {
+            ssao_results_views.push(ssao_results.create_view(&TextureViewDescriptor {
                 format: Some(TextureFormat::Rg8Unorm),
                 dimension: Some(TextureViewDimension::D2Array),
                 aspect: TextureAspect::All,
@@ -590,7 +753,30 @@ impl SsaoModule {
                 array_layer_count: std::num::NonZeroU32::new(1),
                 .. Default::default()
             }));
+
+            blurred_results_views.push(blurred_results.create_view(&TextureViewDescriptor {
+                format: Some(TextureFormat::Rg8Unorm),
+                dimension: Some(TextureViewDimension::D2),
+                aspect: TextureAspect::All,
+                base_array_layer: pass,
+                array_layer_count: std::num::NonZeroU32::new(1),
+                .. Default::default()
+            }));
         }
+
+        let final_result = device.create_texture(&TextureDescriptor {
+            label: Some("Final results"),
+            size: Extent3d {
+                width,
+                height,
+                depth: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R32Float,
+            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE | TextureUsage::SAMPLED,
+        }).create_view(&TextureViewDescriptor::default());
 
         let constants = Constants::default();
         let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&[constants]), usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST });
@@ -624,16 +810,31 @@ impl SsaoModule {
             ssao_bgl,
             ssao_per_pass_bgl,
 
+            blur_pass,
+            blur_bgl,
+            blur_per_pass_bgl,
+        
+            apply_pass,
+            apply_bgl,
+
             point_clamp_sampler,
             point_mirror_sampler,
             viewspace_depth_sampler,
+            linear_clamp_sampler,
 
             deinterlaced_normals,
+
             halfdepths,
             halfdepths_mips,
             halfdepths_arrays,
-            final_results,
-            final_results_views,
+
+            ssao_results,
+            ssao_results_views,
+
+            blurred_results,
+            blurred_results_views,
+
+            final_result,
 
             constants,
             constants_buffer,
@@ -749,8 +950,6 @@ impl SsaoModule {
     pub fn draw(&mut self, device: &Device, queue: &Queue, encoder: &mut CommandEncoder, settings: &Settings, depth: &TextureView, normals: &TextureView) {
         self.update_constants(&queue, settings);
 
-        // println!("{:#?}", self.constants);
-
         // Create bind groups
         let prepare_depths_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -849,11 +1048,70 @@ impl SsaoModule {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: BindingResource::TextureView(&self.final_results_views[pass]),
+                        resource: BindingResource::TextureView(&self.ssao_results_views[pass]),
                     },
                 ],
             }));
         }
+
+        let blur_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &self.blur_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.point_mirror_sampler),
+                },
+            ],
+        });
+        let mut blur_pass_bgs = Vec::new();
+        for pass in 0..4 {
+            blur_pass_bgs.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &self.blur_per_pass_bgl,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&self.ssao_results_views[pass]),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(&self.blurred_results_views[pass]),
+                    },
+                ],
+            }));
+        }
+
+        let apply_bgs = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+                layout: &self.apply_bgl,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Sampler(&self.point_clamp_sampler)
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Sampler(&self.linear_clamp_sampler)
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::TextureView(&self.blurred_results.create_view(&TextureViewDescriptor::default()))
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: BindingResource::TextureView(&self.final_result)
+                    },
+                ],
+        });
 
         let dispatch_size = |tile_size: u32, total_size: u32| -> u32
         {
@@ -890,6 +1148,30 @@ impl SsaoModule {
 
             let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
             let y = dispatch_size(8, self.buffer_size_info.ssaoBufferHeight);
+            cpass.dispatch(x, y, 1);
+        }
+
+        // Blur
+        let blur_pass_count = 4;
+        let w = 4 * 16 - 2 * blur_pass_count;
+        let h = 3 * 16 - 2 * blur_pass_count;
+        let x = dispatch_size(w, self.buffer_size_info.ssaoBufferWidth);
+        let y = dispatch_size(h, self.buffer_size_info.ssaoBufferHeight);
+
+        cpass.set_pipeline(&self.blur_pass);
+        cpass.set_bind_group(0, &blur_bg, &[]);
+        for pass in 0..4 {   
+            cpass.set_bind_group(1, &blur_pass_bgs[pass], &[]);
+            cpass.dispatch(x, y, 1);
+        }
+
+        // Combine
+        {
+            cpass.set_pipeline(&self.apply_pass);
+            cpass.set_bind_group(0, &apply_bgs, &[]);
+
+            let x = dispatch_size(8, self.buffer_size_info.inputOutputBufferWidth);
+            let y = dispatch_size(8, self.buffer_size_info.inputOutputBufferHeight);
             cpass.dispatch(x, y, 1);
         }
     }

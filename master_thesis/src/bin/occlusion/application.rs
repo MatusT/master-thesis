@@ -45,6 +45,9 @@ pub struct Application {
 
     ssao_module: ssao::SsaoModule,
     ssao_settings: ssao::Settings,
+
+    output_pipeline: RenderPipeline,
+    output_bind_group: BindGroup,
 }
 
 impl Application {
@@ -251,6 +254,80 @@ impl Application {
         ssao_settings.radius = 10.0;
         ssao_settings.projection = camera.ubo().projection;
 
+        let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
+        let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
+
+        let output_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::StorageTexture {
+                        dimension: TextureViewDimension::D2,
+                        format: TextureFormat::R32Float,
+                        readonly: true,
+                    },
+                    count: None,
+                }
+            ],
+        });
+
+        let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[
+                &output_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&output_pipeline_layout),
+            vertex_stage: ProgrammableStageDescriptor {
+                module: &output_vs,
+                entry_point: "main",
+            },
+            fragment_stage: Some(ProgrammableStageDescriptor {
+                module: &output_fs,
+                entry_point: "main",
+            }),
+            rasterization_state: Some(RasterizationStateDescriptor {
+                front_face: FrontFace::Ccw,
+                cull_mode: CullMode::Back,
+                depth_bias: 0,
+                depth_bias_slope_scale: 0.0,
+                depth_bias_clamp: 0.0,
+                clamp_depth: false,
+            }),
+            primitive_topology: PrimitiveTopology::TriangleList,
+            color_states: &[ColorStateDescriptor {
+                format: swapchain_format,
+                color_blend: BlendDescriptor::REPLACE,
+                alpha_blend: BlendDescriptor::REPLACE,
+                write_mask: ColorWrite::ALL,
+            }],
+            depth_stencil_state: None,
+            vertex_state: VertexStateDescriptor {
+                index_format: IndexFormat::Uint16,
+                vertex_buffers: &[],
+            },
+            sample_count,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
+        });
+
+        let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &output_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&ssao_module.final_result),
+                },
+            ],
+        }); 
+
         let state = ApplicationState {
             draw_lod: true,
             draw_occluded: false,
@@ -284,6 +361,9 @@ impl Application {
 
             ssao_module,
             ssao_settings,
+
+            output_pipeline,
+            output_bind_group,
         }
     }
 
@@ -310,6 +390,14 @@ impl Application {
                                     }
                                     VirtualKeyCode::O => {
                                         self.state.draw_occluded = !self.state.draw_occluded;
+                                    }
+                                    VirtualKeyCode::Add => {
+                                        self.ssao_settings.radius += 1.0;
+                                        println!("Radius: {}", self.ssao_settings.radius);
+                                    }
+                                    VirtualKeyCode::Minus => {
+                                        self.ssao_settings.radius -= 1.0;
+                                        println!("Radius: {}", self.ssao_settings.radius);
                                     }
                                     _ => {}
                                 };
@@ -389,6 +477,24 @@ impl Application {
         }
 
         self.ssao_module.draw(&self.device, &self.queue, &mut encoder, &self.ssao_settings, &self.depth_texture, &self.normals_texture);
+
+        {
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &frame,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+
+            rpass.set_pipeline(&self.output_pipeline);
+            rpass.set_bind_group(0, &self.output_bind_group, &[]);
+            rpass.draw(0..3, 0..1);
+        }
 
         self.queue.submit(Some(encoder.finish()));
     }
