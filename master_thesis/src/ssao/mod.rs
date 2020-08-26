@@ -957,7 +957,11 @@ impl SsaoModule {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                    resource: BindingResource::Buffer {
+                        buffer: &self.constants_buffer,
+                        offset: 0,
+                        size: None,
+                    }
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -992,7 +996,11 @@ impl SsaoModule {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                    resource: BindingResource::Buffer {
+                        buffer: &self.constants_buffer,
+                        offset: 0,
+                        size: None,
+                    },
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -1015,7 +1023,11 @@ impl SsaoModule {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                    resource: BindingResource::Buffer {
+                        buffer: &self.constants_buffer,
+                        offset: 0,
+                        size: None,
+                    }
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -1040,7 +1052,11 @@ impl SsaoModule {
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: BindingResource::Buffer(self.pass_constants_buffers[pass].slice(..))
+                        resource: BindingResource::Buffer {
+                            buffer: &self.pass_constants_buffers[pass],
+                            offset: 0,
+                            size: None,
+                        }
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -1060,7 +1076,11 @@ impl SsaoModule {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                    resource: BindingResource::Buffer {
+                        buffer: &self.constants_buffer,
+                        offset: 0,
+                        size: None,
+                    },
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -1092,7 +1112,11 @@ impl SsaoModule {
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: BindingResource::Buffer(self.constants_buffer.slice(..))
+                        resource: BindingResource::Buffer {
+                            buffer: &self.constants_buffer,
+                            offset: 0,
+                            size: None,
+                        },
                     },
                     BindGroupEntry {
                         binding: 1,

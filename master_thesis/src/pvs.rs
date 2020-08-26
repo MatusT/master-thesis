@@ -133,7 +133,11 @@ impl StructurePvsModule {
                 layout: &self.bind_group_layout,
                 entries: &[BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(visible.last().unwrap().slice(..)),
+                    resource: BindingResource::Buffer {
+                        buffer: &visible.last().unwrap(),
+                        offset: 0,
+                        size: None,
+                    },
                 }],
             }));
         }
@@ -265,7 +269,7 @@ impl StructurePvsField {
         self.snapped_to_spherical(self.index_to_snapped(index))
     }
 
-    pub fn compute(&mut self, device: &Device, queue: &Queue, index: usize) {
+    pub async fn compute(&mut self, device: &Device, queue: &Queue, index: usize) {
         if self.sets[index].is_some() {
             return;
         }
@@ -368,7 +372,7 @@ impl StructurePvsField {
             let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
             device.poll(Maintain::Wait);
 
-            let visible_cpu: Vec<u32> = if let Ok(()) = futures::executor::block_on(buffer_future) {
+            let visible_cpu: Vec<u32> = if let Ok(()) = buffer_future.await {
                 let data = buffer_slice.get_mapped_range();
                 let result = data
                     .chunks_exact(4)
@@ -399,16 +403,16 @@ impl StructurePvsField {
         self.reduce(index);
     }
 
-    pub fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) {
+    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        self.compute(device, queue, index)
+        self.compute(device, queue, index).await
     }
 
     /// Computes potentially visible sets from all possible polar coordinates given by `step`.
-    pub fn compute_all(&mut self, device: &Device, queue: &Queue) {
+    pub async fn compute_all(&mut self, device: &Device, queue: &Queue) {
         for index in 0..self.sets.len() {
-            self.compute(device, queue, index);
+            self.compute(device, queue, index).await;
         }
     }
 

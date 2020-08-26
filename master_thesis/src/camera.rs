@@ -84,7 +84,11 @@ impl RotationCamera {
             layout: &bind_group_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::Buffer(buffer.slice(..)),
+                resource: BindingResource::Buffer {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: None,
+                },
             }],
             label: None,
         });

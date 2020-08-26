@@ -212,7 +212,7 @@ impl Application {
             &per_molecule_bind_group_layout,
         ));
         let covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 128);
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 15, 128);
 
         let mut covid_transforms = Vec::new();
         for x in -1..=1 {
@@ -242,9 +242,11 @@ impl Application {
                 layout: &per_structure_bind_group_layout,
                 entries: &[BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(
-                        covid_transforms_gpu.slice(i * 256..(i + 1) * 256),
-                    ),
+                    resource: BindingResource::Buffer {
+                        buffer: &covid_transforms_gpu,
+                        offset: i * 256,
+                        size: std::num::NonZeroU64::new(256),
+                    },
                 }],
             }));
         }
@@ -253,6 +255,7 @@ impl Application {
         let mut ssao_settings = ssao::Settings::default();
         ssao_settings.radius = 10.0;
         ssao_settings.projection = camera.ubo().projection;
+        ssao_settings.horizonAngleThreshold = 0.0;
 
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
@@ -411,7 +414,7 @@ impl Application {
         }
     }
 
-    pub fn render(&mut self, frame: &TextureView) {
+    pub async fn render(&mut self, frame: &TextureView) {
         //================== CAMERA DATA UPLOAD
         self.camera.update_gpu(&self.queue);
 
@@ -421,7 +424,7 @@ impl Application {
             let direction = normalize(&(self.camera.eye() - position));
 
             self.covid_pvs
-                .compute_from_eye(&self.device, &self.queue, direction);
+                .compute_from_eye(&self.device, &self.queue, direction).await;
         }
 
         //================== RENDER MOLECULES

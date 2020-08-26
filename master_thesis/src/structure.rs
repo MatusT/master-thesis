@@ -152,11 +152,19 @@ impl Structure {
                 entries: (&[
                     BindGroupEntry {
                         binding: 0,
-                        resource: BindingResource::Buffer(new_molecule.atoms().slice(..)),
+                        resource: BindingResource::Buffer {
+                            buffer: &new_molecule.atoms(),
+                            offset: 0,
+                            size: None,
+                        },
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: BindingResource::Buffer(transforms.last().unwrap().0.slice(..)),
+                        resource: BindingResource::Buffer {
+                            buffer: &transforms.last().unwrap().0,
+                            offset: 0,
+                            size: None,
+                        },
                     },
                 ]),
             }));

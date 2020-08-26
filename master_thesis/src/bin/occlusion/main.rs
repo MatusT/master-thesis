@@ -8,26 +8,26 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+use futures::executor::LocalPool;
+use futures::task::LocalSpawnExt;
 
-fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
+async fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureFormat) {
     let size = window.inner_size();
     let instance = Instance::new(BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
-    let adapter = futures::executor::block_on(instance.request_adapter(&RequestAdapterOptions {
+    let adapter = instance.request_adapter(&RequestAdapterOptions {
         power_preference: PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
-    }))
-    .unwrap();
+    }).await.unwrap();
 
-    let (device, queue) = futures::executor::block_on(adapter.request_device(
+    let (device, queue) = adapter.request_device(
         &DeviceDescriptor {
             features: Features::empty(),
             limits: Limits::default(),
             shader_validation: false,
         },
         None,
-    ))
-    .unwrap();
+    ).await.unwrap();
 
     // Initialize the graphics scene
     let mut application =
@@ -43,7 +43,10 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
     };
     let mut swap_chain = application.device().create_swap_chain(&surface, &sc_desc);
 
-    event_loop.run(move |event, _, control_flow| {
+    let executor = LocalPool::new();
+    let spawner = executor.spawner();
+
+    event_loop.run(move |event, _, control_flow|  {
         // Have the closure take ownership of the resources.
         // `event_loop.run` never returns, therefore we must do this to ensure
         // the resources are properly cleaned up.
@@ -70,7 +73,7 @@ fn run(event_loop: EventLoop<()>, window: Window, swapchain_format: TextureForma
             Event::RedrawRequested(_) => {
                 let frame = swap_chain.get_current_frame().unwrap();
 
-                application.render(&frame.output.view);
+                spawner.spawn_local(application.render(&frame.output.view)).unwrap();
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -100,7 +103,7 @@ fn main() {
     {
         // env_logger::init();
         // Temporarily avoid srgb formats for the swapchain on the web
-        run(event_loop, window, TextureFormat::Bgra8UnormSrgb);
+        futures::executor::block_on(run(event_loop, window, wgpu::TextureFormat::Bgra8UnormSrgb));
     }
     #[cfg(target_arch = "wasm32")]
     {
