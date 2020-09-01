@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod framework;
 pub mod hilbert;
 pub mod pipelines;
 pub mod pvs;

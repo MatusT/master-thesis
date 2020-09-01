@@ -8,8 +8,8 @@
 ///! Vec<Structure>
 use bytemuck::cast_slice;
 use nalgebra_glm::{normalize, ortho_rh_zo, vec2, vec3, TVec2, Vec2, Vec3};
-use wgpu::*;
 use wgpu::util::*;
+use wgpu::*;
 
 use std::convert::TryInto;
 use std::mem::size_of;
@@ -118,10 +118,13 @@ impl StructurePvsModule {
         let mut max_size = 0;
         for i in 0..structure.molecules().len() {
             max_size = max_size.max(structure.transforms()[i].1);
-            visible.push(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
-                cast_slice(&vec![0i32; structure.transforms()[i].1]),
-                usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
-            }));
+            visible.push(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: cast_slice(&vec![0i32; structure.transforms()[i].1]),
+                    usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
+                }),
+            );
             visible_staging.push(device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: (structure.transforms()[i].1 * size_of::<i32>()) as u64,
@@ -142,8 +145,9 @@ impl StructurePvsModule {
             }));
         }
 
-        let zero_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
-            cast_slice(&vec![0i32; max_size]),
+        let zero_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&vec![0i32; max_size]),
             usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC,
         });
 

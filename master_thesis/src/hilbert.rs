@@ -67,7 +67,7 @@ pub fn intersect_inside_no(v: &Vec3) -> Vec3 {
     let t1 = min2(&t_min, &t_max);
     let t2 = max2(&t_min, &t_max);
 
-    let near = t1[0].max(t1[1]).max(t1[2]);
+    let _near = t1[0].max(t1[1]).max(t1[2]);
     let far = t2[0].min(t2[1]).min(t2[2]);
 
     let result = far * v;

@@ -6,8 +6,6 @@ use bytemuck::cast_slice;
 use nalgebra_glm::*;
 use wgpu::*;
 
-
-
 struct ApplicationState {}
 
 pub struct Application {
@@ -116,7 +114,7 @@ impl Application {
     }
 
     pub fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
-        self.camera.update(event);
+        // self.camera.update(event);
     }
 
     pub fn render(&mut self, frame: &TextureView) {

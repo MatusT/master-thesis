@@ -11,8 +11,8 @@ use nalgebra_glm::{distance, length, vec3};
 use rpdb;
 use rpdb::BoundingBox;
 use rpdb::FromRon;
-use wgpu::*;
 use wgpu::util::*;
+use wgpu::*;
 
 use crate::hilbert;
 
@@ -52,7 +52,11 @@ impl Molecule {
             sum += lod.atoms().len() as u32;
         }
 
-        let atoms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&atoms), usage: BufferUsage::STORAGE });
+        let atoms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&atoms),
+            usage: BufferUsage::STORAGE,
+        });
 
         let bounding_box = *molecule.bounding_box();
         let bounding_radius = distance(&bounding_box.max, &bounding_box.min) / 2.0;
@@ -137,8 +141,9 @@ impl Structure {
             };
 
             transforms.push((
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: 
-                    cast_slice(&molecule_model_matrices),
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: cast_slice(&molecule_model_matrices),
                     usage: BufferUsage::STORAGE,
                 }),
                 molecule_model_matrices_len,

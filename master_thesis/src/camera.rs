@@ -1,11 +1,9 @@
 use bytemuck::*;
 use nalgebra_glm as glm;
 use std::f32::consts::PI;
-use wgpu::*;
 use wgpu::util::DeviceExt;
+use wgpu::*;
 use winit;
-
-use crate::ApplicationEvent;
 
 const TAU: f32 = 2.0 * PI;
 #[repr(C)]
@@ -27,7 +25,9 @@ impl CameraUbo {
 unsafe impl Zeroable for CameraUbo {}
 unsafe impl Pod for CameraUbo {}
 pub trait Camera {
-    fn update(&mut self, event: &ApplicationEvent);
+    fn window_event(&mut self, event: &winit::event::WindowEvent);
+    fn device_event(&mut self, event: &winit::event::DeviceEvent);
+
     fn update_gpu(&mut self, queue: &Queue);
 
     fn ubo(&mut self) -> CameraUbo;
@@ -74,8 +74,8 @@ impl RotationCamera {
             position,
         };
 
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { 
-            label: None, 
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
             contents: cast_slice(&[ubo]),
             usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
         });
@@ -164,34 +164,35 @@ impl RotationCamera {
 }
 
 impl Camera for RotationCamera {
-    fn update<'a>(&mut self, event: &ApplicationEvent<'a>) {
+    fn window_event(&mut self, event: &winit::event::WindowEvent) {
         match event {
-            ApplicationEvent::WindowEvent(event) => match event {
-                winit::event::WindowEvent::MouseWheel { delta, .. } => {
-                    if let winit::event::MouseScrollDelta::LineDelta(_, change) = delta {
-                        self.distance -= change * self.speed;
+            winit::event::WindowEvent::MouseWheel { delta, .. } => {
+                if let winit::event::MouseScrollDelta::LineDelta(_, change) = delta {
+                    self.distance -= change * self.speed;
+                }
+            }
+            winit::event::WindowEvent::MouseInput { state, button, .. } => {
+                if *button == winit::event::MouseButton::Left {
+                    if *state == winit::event::ElementState::Pressed {
+                        self.mouse_pressed = true;
+                    } else {
+                        self.mouse_pressed = false;
                     }
                 }
-                winit::event::WindowEvent::MouseInput { state, button, .. } => {
-                    if *button == winit::event::MouseButton::Left {
-                        if *state == winit::event::ElementState::Pressed {
-                            self.mouse_pressed = true;
-                        } else {
-                            self.mouse_pressed = false;
-                        }
-                    }
+            }
+            _ => {}
+        };
+    }
+
+    fn device_event(&mut self, event: &winit::event::DeviceEvent) {
+        match event {
+            winit::event::DeviceEvent::MouseMotion { delta: (x, y) } => {
+                if self.mouse_pressed {
+                    self.add_yaw(*x as f32 / 100.0);
+                    self.add_pitch(*y as f32 / 100.0);
                 }
-                _ => {}
-            },
-            ApplicationEvent::DeviceEvent(event) => match event {
-                winit::event::DeviceEvent::MouseMotion { delta: (x, y) } => {
-                    if self.mouse_pressed {
-                        self.add_yaw(*x as f32 / 100.0);
-                        self.add_pitch(*y as f32 / 100.0);
-                    }
-                }
-                _ => {}
-            },
+            }
+            _ => {}
         };
     }
 

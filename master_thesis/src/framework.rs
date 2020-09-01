@@ -2,11 +2,11 @@ use futures::task::LocalSpawn;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 use winit::{
-    event::{self, WindowEvent},
+    event::{self, DeviceEvent, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopProxy},
 };
 
-pub trait Example: 'static + Sized {
+pub trait ApplicationStructure: 'static + Sized {
     fn optional_features() -> wgpu::Features {
         wgpu::Features::empty()
     }
@@ -27,7 +27,8 @@ pub trait Example: 'static + Sized {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     );
-    fn update(&mut self, event: WindowEvent);
+    fn window_event(&mut self, event: WindowEvent);
+    fn device_event(&mut self, event: DeviceEvent);
     fn render(
         &mut self,
         frame: &wgpu::SwapChainTexture,
@@ -52,13 +53,13 @@ struct WgpuSetup {
 }
 
 fn window_setup(title: &str) -> WindowSetup {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let chrome_tracing_dir = std::env::var("WGPU_CHROME_TRACE");
-        subscriber::initialize_default_subscriber(
-            chrome_tracing_dir.as_ref().map(std::path::Path::new).ok(),
-        );
-    };
+    // #[cfg(not(target_arch = "wasm32"))]
+    // {
+    //     let chrome_tracing_dir = std::env::var("WGPU_CHROME_TRACE");
+    //     subscriber::initialize_default_subscriber(
+    //         chrome_tracing_dir.as_ref().map(std::path::Path::new).ok(),
+    //     );
+    // };
 
     #[cfg(target_arch = "wasm32")]
     console_log::init().expect("could not initialize logger");
@@ -67,7 +68,11 @@ fn window_setup(title: &str) -> WindowSetup {
     let event_loop_proxy = event_loop.create_proxy();
     let mut builder = winit::window::WindowBuilder::new();
     builder = builder.with_title(title);
-    
+    builder = builder.with_inner_size(winit::dpi::PhysicalSize {
+        width: 1920,
+        height: 1200,
+    });
+
     let window = builder.build(&event_loop).unwrap();
     let size = window.inner_size();
 
@@ -93,13 +98,13 @@ fn window_setup(title: &str) -> WindowSetup {
     }
 }
 
-async fn wgpu_setup<E: Example>(
+async fn wgpu_setup<E: ApplicationStructure>(
     window: winit::window::Window,
     event_loop_proxy: winit::event_loop::EventLoopProxy<WgpuSetup>,
 ) {
     log::info!("Initializing the surface...");
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
     let surface = unsafe {
         let surface = instance.create_surface(&window);
         surface
@@ -107,7 +112,7 @@ async fn wgpu_setup<E: Example>(
 
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
+            power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
         })
         .await
@@ -130,7 +135,7 @@ async fn wgpu_setup<E: Example>(
             &wgpu::DeviceDescriptor {
                 features: (optional_features & adapter_features) | required_features,
                 limits: needed_limits,
-                shader_validation: true,
+                shader_validation: false,
             },
             trace_dir.ok().as_ref().map(std::path::Path::new),
         )
@@ -158,7 +163,10 @@ struct Application<E> {
     swap_chain: wgpu::SwapChain,
 }
 
-fn start<E: Example>(event_loop: EventLoop<WgpuSetup>, size: winit::dpi::PhysicalSize<u32>) {
+fn start<E: ApplicationStructure>(
+    event_loop: EventLoop<WgpuSetup>,
+    size: winit::dpi::PhysicalSize<u32>,
+) {
     #[cfg(not(target_arch = "wasm32"))]
     let (mut pool, spawner) = {
         let local_pool = futures::executor::LocalPool::new();
@@ -280,9 +288,12 @@ fn start<E: Example>(event_loop: EventLoop<WgpuSetup>, size: winit::dpi::Physica
                         *control_flow = ControlFlow::Exit;
                     }
                     _ => {
-                        example.update(event);
+                        example.window_event(event);
                     }
                 },
+                event::Event::DeviceEvent { event, .. } => {
+                    example.device_event(event);
+                }
                 event::Event::RedrawRequested(_) => {
                     let frame = match swap_chain.get_current_frame() {
                         Ok(frame) => frame,
@@ -303,7 +314,7 @@ fn start<E: Example>(event_loop: EventLoop<WgpuSetup>, size: winit::dpi::Physica
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run<E: Example>(title: &str) {
+pub fn run<E: ApplicationStructure>(title: &str) {
     let WindowSetup {
         window,
         event_loop,
@@ -316,7 +327,7 @@ pub fn run<E: Example>(title: &str) {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn run<E: Example>(title: &str) {
+pub fn run<E: ApplicationStructure>(title: &str) {
     let title = title.to_owned();
     let WindowSetup {
         window,

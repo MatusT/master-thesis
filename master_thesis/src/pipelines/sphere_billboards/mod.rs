@@ -1,4 +1,3 @@
-
 use wgpu::*;
 pub struct SphereBillboardsPipeline {
     pub pipeline: RenderPipeline,

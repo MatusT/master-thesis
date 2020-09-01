@@ -12,6 +12,8 @@ wgpu = { version = "0.6", git = "https://github.com/gfx-rs/wgpu-rs" }
 # Math
 nalgebra-glm = "0.7"
 bbox = "0.9"
+rand = "0.7"
+rand_distr = "0.3"
 
 # Utils
 futures = { version = "0.3" }

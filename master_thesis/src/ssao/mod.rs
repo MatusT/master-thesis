@@ -1,20 +1,20 @@
 use bytemuck::*;
-use nalgebra_glm::{Mat4, TVec2, Vec2, vec2, Vec4, clamp_scalar};
-use wgpu::*;
+use nalgebra_glm::{clamp_scalar, vec2, Mat4, TVec2, Vec2, Vec4};
 use wgpu::util::DeviceExt;
+use wgpu::*;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 struct Constants {
-    NormalsToViewspace: Mat4,
+    normals_to_viewspace: Mat4,
 
-    DepthBufferOffset: TVec2<i32>,
-    DepthUnpackConsts: Vec2,
+    depth_buffer_offset: TVec2<i32>,
+    depth_unpack_consts: Vec2,
 
-    NDCToViewMul: Vec2,
-    NDCToViewAdd: Vec2,
+    ndc_to_view_mul: Vec2,
+    ndc_to_view_add: Vec2,
 
-    DepthBufferUVToViewMul: Vec2,
-    DepthBufferUVToViewAdd: Vec2,
+    depth_buffer_uv_to_view_mul: Vec2,
+    depth_buffer_uv_to_view_add: Vec2,
 
     EffectRadius: f32,         // world (viewspace) maximum size of the shadow
     EffectShadowStrength: f32, // global strength of the effect (0 - 5)
@@ -43,7 +43,7 @@ struct Constants {
     DeinterleavedDepthBufferDimensions: Vec2,
     DeinterleavedDepthBufferInverseDimensions: Vec2,
 
-    DeinterleavedDepthBufferOffset: Vec2,
+    Deinterleaveddepth_buffer_offset: Vec2,
     DeinterleavedDepthBufferNormalisedOffset: Vec2,
 }
 
@@ -109,12 +109,12 @@ impl BufferSizeInfo {
         let depthBufferHeight = height;
         let depthBufferHalfWidth = half_width;
         let depthBufferHalfHeight = half_height;
-    
+
         let depthBufferXOffset = 0;
         let depthBufferYOffset = 0;
         let depthBufferHalfXOffset = 0;
         let depthBufferHalfYOffset = 0;
-        
+
         Self {
             inputOutputBufferWidth: width,
             inputOutputBufferHeight: height,
@@ -123,7 +123,7 @@ impl BufferSizeInfo {
             depthBufferYOffset,
             depthBufferWidth,
             depthBufferHeight,
-        
+
             ssaoBufferWidth: half_width,
             ssaoBufferHeight: half_height,
 
@@ -143,11 +143,11 @@ pub struct Settings {
     pub projection: Mat4,
 
     ///
-    pub NormalsToViewspace: Mat4,
+    pub normals_to_viewspace: Mat4,
 
     /// [0.0,  ~ ] World (view) space size of the occlusion sphere.
     pub radius: f32,
-    
+
     /// [0.0, 5.0] Effect strength linear multiplier
     pub shadowMultiplier: f32,
 
@@ -189,7 +189,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             projection: Mat4::identity(),
-            NormalsToViewspace: Mat4::identity(),
+            normals_to_viewspace: Mat4::identity(),
             radius: 1.2,
             shadowMultiplier: 1.0,
             shadowPower: 1.5,
@@ -252,7 +252,7 @@ pub struct SsaoModule {
     constants_buffer: Buffer,
 
     pass_constants: [PerPassConstants; 4],
-    pass_constants_buffers: Vec<Buffer>,    
+    pass_constants_buffers: Vec<Buffer>,
 }
 
 impl SsaoModule {
@@ -588,7 +588,7 @@ impl SsaoModule {
                     ty: BindingType::StorageTexture {
                         dimension: TextureViewDimension::D2,
                         format: TextureFormat::R32Float,
-                        readonly: false
+                        readonly: false,
                     },
                     count: None,
                 },
@@ -656,25 +656,26 @@ impl SsaoModule {
             ..Default::default()
         });
 
-
-        let deinterlaced_normals = device.create_texture(&TextureDescriptor {
-            label: Some("Deinterlaced Normals"),
-            size: Extent3d {
-                width: (width + 1) / 2,
-                height: (height + 1) / 2,
-                depth: 4,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba32Float,
-            usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
-        }).create_view(&TextureViewDescriptor {
-            format: Some(TextureFormat::Rgba32Float),
-            dimension: Some(TextureViewDimension::D2Array),
-            aspect: TextureAspect::All,
-            .. Default::default()
-        });
+        let deinterlaced_normals = device
+            .create_texture(&TextureDescriptor {
+                label: Some("Deinterlaced Normals"),
+                size: Extent3d {
+                    width: (width + 1) / 2,
+                    height: (height + 1) / 2,
+                    depth: 4,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba32Float,
+                usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+            })
+            .create_view(&TextureViewDescriptor {
+                format: Some(TextureFormat::Rgba32Float),
+                dimension: Some(TextureViewDimension::D2Array),
+                aspect: TextureAspect::All,
+                ..Default::default()
+            });
 
         let halfdepths = device.create_texture(&TextureDescriptor {
             label: Some("Half depths"),
@@ -731,7 +732,7 @@ impl SsaoModule {
                 level_count: std::num::NonZeroU32::new(1),
                 base_array_layer: 0,
                 array_layer_count: None,
-                .. Default::default()
+                ..Default::default()
             }));
 
             halfdepths_arrays.push(halfdepths.create_view(&TextureViewDescriptor {
@@ -742,7 +743,7 @@ impl SsaoModule {
                 level_count: None,
                 base_array_layer: pass,
                 array_layer_count: std::num::NonZeroU32::new(1),
-                .. Default::default()
+                ..Default::default()
             }));
 
             ssao_results_views.push(ssao_results.create_view(&TextureViewDescriptor {
@@ -751,7 +752,7 @@ impl SsaoModule {
                 aspect: TextureAspect::All,
                 base_array_layer: pass,
                 array_layer_count: std::num::NonZeroU32::new(1),
-                .. Default::default()
+                ..Default::default()
             }));
 
             blurred_results_views.push(blurred_results.create_view(&TextureViewDescriptor {
@@ -760,36 +761,46 @@ impl SsaoModule {
                 aspect: TextureAspect::All,
                 base_array_layer: pass,
                 array_layer_count: std::num::NonZeroU32::new(1),
-                .. Default::default()
+                ..Default::default()
             }));
         }
 
-        let final_result = device.create_texture(&TextureDescriptor {
-            label: Some("Final results"),
-            size: Extent3d {
-                width,
-                height,
-                depth: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::R32Float,
-            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE | TextureUsage::SAMPLED,
-        }).create_view(&TextureViewDescriptor::default());
+        let final_result = device
+            .create_texture(&TextureDescriptor {
+                label: Some("Final results"),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::R32Float,
+                usage: TextureUsage::OUTPUT_ATTACHMENT
+                    | TextureUsage::STORAGE
+                    | TextureUsage::SAMPLED,
+            })
+            .create_view(&TextureViewDescriptor::default());
 
         let constants = Constants::default();
-        let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: cast_slice(&[constants]), usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST });
+        let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: cast_slice(&[constants]),
+            usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        });
 
         let mut pass_constants = [PerPassConstants::default(); 4];
         let mut pass_constants_buffers = Vec::new();
         for i in 0..4 {
             pass_constants[i].PassIndex = i as i32;
-            pass_constants_buffers.push(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { 
-                label: None, 
-                contents: cast_slice(&[pass_constants[i]]), 
-                usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST
-            }));
+            pass_constants_buffers.push(device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: cast_slice(&[pass_constants[i]]),
+                    usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+                },
+            ));
         }
 
         println!("{:?}", buffer_size_info);
@@ -813,7 +824,7 @@ impl SsaoModule {
             blur_pass,
             blur_bgl,
             blur_per_pass_bgl,
-        
+
             apply_pass,
             apply_bgl,
 
@@ -847,77 +858,99 @@ impl SsaoModule {
     fn update_constants(&mut self, queue: &Queue, settings: &Settings) {
         let mut constants = &mut self.constants;
 
-        constants.NormalsToViewspace = settings.NormalsToViewspace;
+        constants.normals_to_viewspace = settings.normals_to_viewspace;
         let depthLinearizeMul = -settings.projection[(2, 3)];
         let mut depthLinearizeAdd = -settings.projection[(2, 2)];
         if depthLinearizeMul * depthLinearizeAdd <= 0.0 {
             depthLinearizeAdd = -depthLinearizeAdd;
         }
-        constants.DepthUnpackConsts[0] = depthLinearizeMul;
-        constants.DepthUnpackConsts[1] = depthLinearizeAdd;
+        constants.depth_unpack_consts[0] = depthLinearizeMul;
+        constants.depth_unpack_consts[1] = depthLinearizeAdd;
 
-        let CameraTanHalfFOV = vec2(1.0 / settings.projection[(1, 1)], 1.0 / settings.projection[(0, 0)]);
-    
-        constants.NDCToViewMul[0] = CameraTanHalfFOV[0] * 2.0;
-        constants.NDCToViewMul[1] = CameraTanHalfFOV[1] * -2.0;
-        constants.NDCToViewAdd[0] = CameraTanHalfFOV[0] * -1.0;
-        constants.NDCToViewAdd[1] = CameraTanHalfFOV[1] * 1.0;
+        let CameraTanHalfFOV = vec2(
+            1.0 / settings.projection[(1, 1)],
+            1.0 / settings.projection[(0, 0)],
+        );
 
-        let ratio = (self.buffer_size_info.inputOutputBufferWidth as f32) / (self.buffer_size_info.depthBufferWidth as f32);
+        constants.ndc_to_view_mul[0] = CameraTanHalfFOV[0] * 2.0;
+        constants.ndc_to_view_mul[1] = CameraTanHalfFOV[1] * -2.0;
+        constants.ndc_to_view_add[0] = CameraTanHalfFOV[0] * -1.0;
+        constants.ndc_to_view_add[1] = CameraTanHalfFOV[1] * 1.0;
+
+        let ratio = (self.buffer_size_info.inputOutputBufferWidth as f32)
+            / (self.buffer_size_info.depthBufferWidth as f32);
         let border = (1.0 - ratio) / 2.0;
-        for i in 0..2
-        {
-            constants.DepthBufferUVToViewMul[i] = constants.NDCToViewMul[i] / ratio;
-            constants.DepthBufferUVToViewAdd[i] = constants.NDCToViewAdd[i] - constants.NDCToViewMul[i] * border / ratio;
+        for i in 0..2 {
+            constants.depth_buffer_uv_to_view_mul[i] = constants.ndc_to_view_mul[i] / ratio;
+            constants.depth_buffer_uv_to_view_add[i] =
+                constants.ndc_to_view_add[i] - constants.ndc_to_view_mul[i] * border / ratio;
         }
-    
+
         constants.EffectRadius = clamp_scalar(settings.radius, 0.0, 100000.0);
         constants.EffectShadowStrength = clamp_scalar(settings.shadowMultiplier * 4.3, 0.0, 10.0);
         constants.EffectShadowPow = clamp_scalar(settings.shadowPower, 0.0, 10.0);
         constants.EffectShadowClamp = clamp_scalar(settings.shadowClamp, 0.0, 1.0);
         constants.EffectFadeOutMul = -1.0 / (settings.fadeOutTo - settings.fadeOutFrom);
-        constants.EffectFadeOutAdd = settings.fadeOutFrom / (settings.fadeOutTo - settings.fadeOutFrom) + 1.0;
-        constants.EffectHorizonAngleThreshold = clamp_scalar(settings.horizonAngleThreshold, 0.0, 1.0);
-    
+        constants.EffectFadeOutAdd =
+            settings.fadeOutFrom / (settings.fadeOutTo - settings.fadeOutFrom) + 1.0;
+        constants.EffectHorizonAngleThreshold =
+            clamp_scalar(settings.horizonAngleThreshold, 0.0, 1.0);
+
         // 1.2 seems to be around the best trade off - 1.0 means on-screen radius will stop/slow growing when the camera is at 1.0 distance, so, depending on FOV, basically filling up most of the screen
         // This setting is viewspace-dependent and not screen size dependent intentionally, so that when you change FOV the effect stays (relatively) similar.
         let mut effectSamplingRadiusNearLimit = settings.radius * 1.2;
         effectSamplingRadiusNearLimit /= CameraTanHalfFOV[1]; // to keep the effect same regardless of FOV
 
         // if the depth precision is switched to 32bit float, this can be set to something closer to 1 (0.9999 is fine)
-        constants.DepthPrecisionOffsetMod = 0.9999;   
-        
+        constants.DepthPrecisionOffsetMod = 0.9999;
+
         constants.EffectSamplingRadiusNearLimitRec = 1.0 / effectSamplingRadiusNearLimit;
-        
+
         constants.NegRecEffectRadius = -1.0 / constants.EffectRadius;
-        
+
         constants.DetailAOStrength = settings.detailShadowStrength;
-    
+
         // set buffer size constants.
         constants.SSAOBufferDimensions[0] = self.buffer_size_info.ssaoBufferWidth as f32;
         constants.SSAOBufferDimensions[1] = self.buffer_size_info.ssaoBufferHeight as f32;
-        constants.SSAOBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.ssaoBufferWidth as f32);
-        constants.SSAOBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.ssaoBufferHeight as f32);
-    
+        constants.SSAOBufferInverseDimensions[0] =
+            1.0 / (self.buffer_size_info.ssaoBufferWidth as f32);
+        constants.SSAOBufferInverseDimensions[1] =
+            1.0 / (self.buffer_size_info.ssaoBufferHeight as f32);
+
         constants.DepthBufferDimensions[0] = self.buffer_size_info.depthBufferWidth as f32;
         constants.DepthBufferDimensions[1] = self.buffer_size_info.depthBufferHeight as f32;
-        constants.DepthBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.depthBufferWidth as f32);
-        constants.DepthBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.depthBufferHeight as f32);
-    
+        constants.DepthBufferInverseDimensions[0] =
+            1.0 / (self.buffer_size_info.depthBufferWidth as f32);
+        constants.DepthBufferInverseDimensions[1] =
+            1.0 / (self.buffer_size_info.depthBufferHeight as f32);
+
         constants.OutputBufferDimensions[0] = self.buffer_size_info.depthBufferWidth as f32;
         constants.OutputBufferDimensions[1] = self.buffer_size_info.depthBufferHeight as f32;
-        constants.OutputBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.depthBufferWidth as f32);
-        constants.OutputBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.depthBufferHeight as f32);
+        constants.OutputBufferInverseDimensions[0] =
+            1.0 / (self.buffer_size_info.depthBufferWidth as f32);
+        constants.OutputBufferInverseDimensions[1] =
+            1.0 / (self.buffer_size_info.depthBufferHeight as f32);
 
-        constants.DeinterleavedDepthBufferDimensions[0] = self.buffer_size_info.deinterleavedDepthBufferWidth as f32;
-        constants.DeinterleavedDepthBufferDimensions[1] = self.buffer_size_info.deinterleavedDepthBufferHeight as f32;
-        constants.DeinterleavedDepthBufferInverseDimensions[0] = 1.0 / (self.buffer_size_info.deinterleavedDepthBufferWidth as f32);
-        constants.DeinterleavedDepthBufferInverseDimensions[1] = 1.0 / (self.buffer_size_info.deinterleavedDepthBufferHeight as f32);
-    
-        constants.DeinterleavedDepthBufferOffset[0] = self.buffer_size_info.deinterleavedDepthBufferXOffset as f32;
-        constants.DeinterleavedDepthBufferOffset[1] = self.buffer_size_info.deinterleavedDepthBufferYOffset as f32;
-        constants.DeinterleavedDepthBufferNormalisedOffset[0] = (self.buffer_size_info.deinterleavedDepthBufferXOffset as f32) / (self.buffer_size_info.deinterleavedDepthBufferWidth as f32);
-        constants.DeinterleavedDepthBufferNormalisedOffset[1] = (self.buffer_size_info.deinterleavedDepthBufferYOffset as f32) / (self.buffer_size_info.deinterleavedDepthBufferHeight as f32);
+        constants.DeinterleavedDepthBufferDimensions[0] =
+            self.buffer_size_info.deinterleavedDepthBufferWidth as f32;
+        constants.DeinterleavedDepthBufferDimensions[1] =
+            self.buffer_size_info.deinterleavedDepthBufferHeight as f32;
+        constants.DeinterleavedDepthBufferInverseDimensions[0] =
+            1.0 / (self.buffer_size_info.deinterleavedDepthBufferWidth as f32);
+        constants.DeinterleavedDepthBufferInverseDimensions[1] =
+            1.0 / (self.buffer_size_info.deinterleavedDepthBufferHeight as f32);
+
+        constants.Deinterleaveddepth_buffer_offset[0] =
+            self.buffer_size_info.deinterleavedDepthBufferXOffset as f32;
+        constants.Deinterleaveddepth_buffer_offset[1] =
+            self.buffer_size_info.deinterleavedDepthBufferYOffset as f32;
+        constants.DeinterleavedDepthBufferNormalisedOffset[0] =
+            (self.buffer_size_info.deinterleavedDepthBufferXOffset as f32)
+                / (self.buffer_size_info.deinterleavedDepthBufferWidth as f32);
+        constants.DeinterleavedDepthBufferNormalisedOffset[1] =
+            (self.buffer_size_info.deinterleavedDepthBufferYOffset as f32)
+                / (self.buffer_size_info.deinterleavedDepthBufferHeight as f32);
 
         queue.write_buffer(&self.constants_buffer, 0, cast_slice(&[self.constants]));
 
@@ -929,25 +962,40 @@ impl SsaoModule {
             for subpass in 0..subpass_count {
                 let a = pass as f32;
                 let b = spmap[subpass] as f32;
-        
-                let angle0: f32 = (a + b / subpass_count as f32) * (3.1415926535897932384626433832795) * 0.5;
-        
+
+                let angle0: f32 =
+                    (a + b / subpass_count as f32) * (3.1415926535897932384626433832795) * 0.5;
+
                 let ca: f32 = angle0.cos();
                 let sa: f32 = angle0.sin();
-        
-                let scale: f32 = 1.0 + (a - 1.5 + (b - (subpass_count as f32 - 1.0) * 0.5) / subpass_count as f32) * 0.07;
-        
+
+                let scale: f32 = 1.0
+                    + (a - 1.5 + (b - (subpass_count as f32 - 1.0) * 0.5) / subpass_count as f32)
+                        * 0.07;
+
                 constants.PatternRotScaleMatrices[subpass][0] = scale * ca;
                 constants.PatternRotScaleMatrices[subpass][1] = scale * -sa;
                 constants.PatternRotScaleMatrices[subpass][2] = -scale * sa;
                 constants.PatternRotScaleMatrices[subpass][3] = -scale * ca;
             }
 
-            queue.write_buffer(&self.pass_constants_buffers[pass], 0, cast_slice(&[self.pass_constants[pass]]));
+            queue.write_buffer(
+                &self.pass_constants_buffers[pass],
+                0,
+                cast_slice(&[self.pass_constants[pass]]),
+            );
         }
     }
 
-    pub fn draw(&mut self, device: &Device, queue: &Queue, encoder: &mut CommandEncoder, settings: &Settings, depth: &TextureView, normals: &TextureView) {
+    pub fn draw(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        encoder: &mut CommandEncoder,
+        settings: &Settings,
+        depth: &TextureView,
+        normals: &TextureView,
+    ) {
         self.update_constants(&queue, settings);
 
         // Create bind groups
@@ -961,7 +1009,7 @@ impl SsaoModule {
                         buffer: &self.constants_buffer,
                         offset: 0,
                         size: None,
-                    }
+                    },
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -1027,7 +1075,7 @@ impl SsaoModule {
                         buffer: &self.constants_buffer,
                         offset: 0,
                         size: None,
-                    }
+                    },
                 },
                 BindGroupEntry {
                     binding: 1,
@@ -1056,7 +1104,7 @@ impl SsaoModule {
                             buffer: &self.pass_constants_buffers[pass],
                             offset: 0,
                             size: None,
-                        }
+                        },
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -1108,37 +1156,40 @@ impl SsaoModule {
 
         let apply_bgs = device.create_bind_group(&BindGroupDescriptor {
             label: None,
-                layout: &self.apply_bgl,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::Buffer {
-                            buffer: &self.constants_buffer,
-                            offset: 0,
-                            size: None,
-                        },
+            layout: &self.apply_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer {
+                        buffer: &self.constants_buffer,
+                        offset: 0,
+                        size: None,
                     },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: BindingResource::Sampler(&self.point_clamp_sampler)
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Sampler(&self.linear_clamp_sampler)
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: BindingResource::TextureView(&self.blurred_results.create_view(&TextureViewDescriptor::default()))
-                    },
-                    BindGroupEntry {
-                        binding: 4,
-                        resource: BindingResource::TextureView(&self.final_result)
-                    },
-                ],
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&self.point_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(
+                        &self
+                            .blurred_results
+                            .create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(&self.final_result),
+                },
+            ],
         });
 
-        let dispatch_size = |tile_size: u32, total_size: u32| -> u32
-        {
+        let dispatch_size = |tile_size: u32, total_size: u32| -> u32 {
             return (total_size + tile_size - 1) / tile_size;
         };
 
@@ -1167,7 +1218,7 @@ impl SsaoModule {
         // SSAO
         cpass.set_pipeline(&self.ssao_pass);
         cpass.set_bind_group(0, &ssao_bg, &[]);
-        for pass in 0..4 {            
+        for pass in 0..4 {
             cpass.set_bind_group(1, &ssao_pass_bgs[pass], &[]);
 
             let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
@@ -1184,7 +1235,7 @@ impl SsaoModule {
 
         cpass.set_pipeline(&self.blur_pass);
         cpass.set_bind_group(0, &blur_bg, &[]);
-        for pass in 0..4 {   
+        for pass in 0..4 {
             cpass.set_bind_group(1, &blur_pass_bgs[pass], &[]);
             cpass.dispatch(x, y, 1);
         }
