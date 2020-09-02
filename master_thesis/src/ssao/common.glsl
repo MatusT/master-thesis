@@ -41,6 +41,7 @@ struct GlobalConstants
 	vec2                  DeinterleavedDepthBufferNormalisedOffset;
 
 	float                 InvSharpness;
+	uint                  BlurPasses;
 };
 
 struct PerPassConstants {

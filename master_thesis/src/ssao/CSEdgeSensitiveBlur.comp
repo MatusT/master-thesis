@@ -213,7 +213,6 @@ void main()
     uvec2 tid = gl_LocalInvocationID.xy;
     uvec2 gid = gl_WorkGroupID.xy;
 
-    uint blurPasses = 4u;
-    LDSEdgeSensitiveBlur(blurPasses, tid, gid);
+    LDSEdgeSensitiveBlur(constants.BlurPasses, tid, gid);
 }
 

@@ -45,6 +45,9 @@ struct Constants {
 
     Deinterleaveddepth_buffer_offset: Vec2,
     DeinterleavedDepthBufferNormalisedOffset: Vec2,
+
+    inv_sharpness: f32,
+    blur_passes: u32,
 }
 
 unsafe impl Zeroable for Constants {}
@@ -212,6 +215,7 @@ pub struct SsaoModule {
 
     buffer_size_info: BufferSizeInfo,
 
+    normals_from_depth_pass: ComputePipeline,
     prepare_normals_pass: ComputePipeline,
     prepare_normals_bgl: BindGroupLayout,
 
@@ -236,11 +240,9 @@ pub struct SsaoModule {
 
     deinterlaced_normals: TextureView,
 
-    halfdepths: Texture,
     halfdepths_mips: Vec<TextureView>,
     halfdepths_arrays: Vec<TextureView>,
 
-    ssao_results: Texture,
     ssao_results_views: Vec<TextureView>,
 
     blurred_results: Texture,
@@ -259,6 +261,8 @@ impl SsaoModule {
     pub fn new(device: &Device, width: u32, height: u32) -> Self {
         let buffer_size_info = BufferSizeInfo::new(width, height);
 
+        let normals_from_depth_shader =
+            device.create_shader_module(include_spirv!("normals_from_depth.comp.spv"));
         let prepare_normals_shader =
             device.create_shader_module(include_spirv!("prepare_normals.comp.spv"));
         let prepare_depths_shader =
@@ -307,10 +311,19 @@ impl SsaoModule {
                 },
             ],
         });
+
         let prepare_normals_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&prepare_normals_bgl],
             push_constant_ranges: &[],
+        });
+        let normals_from_depth_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&prepare_normals_pl),
+            compute_stage: ProgrammableStageDescriptor {
+                module: &normals_from_depth_shader,
+                entry_point: "main",
+            },
         });
         let prepare_normals_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
@@ -811,6 +824,7 @@ impl SsaoModule {
 
             buffer_size_info,
 
+            normals_from_depth_pass,
             prepare_normals_pass,
             prepare_normals_bgl,
 
@@ -835,11 +849,9 @@ impl SsaoModule {
 
             deinterlaced_normals,
 
-            halfdepths,
             halfdepths_mips,
             halfdepths_arrays,
 
-            ssao_results,
             ssao_results_views,
 
             blurred_results,
@@ -952,10 +964,12 @@ impl SsaoModule {
             (self.buffer_size_info.deinterleavedDepthBufferYOffset as f32)
                 / (self.buffer_size_info.deinterleavedDepthBufferHeight as f32);
 
+        constants.blur_passes = settings.blurPassCount;
+
         queue.write_buffer(&self.constants_buffer, 0, cast_slice(&[self.constants]));
 
         for pass in 0..4 {
-            let mut constants = &mut self.pass_constants[pass];
+            let constants = &mut self.pass_constants[pass];
 
             let subpass_count = 5;
             let spmap = [0, 1, 4, 3, 2];
@@ -994,7 +1008,7 @@ impl SsaoModule {
         encoder: &mut CommandEncoder,
         settings: &Settings,
         depth: &TextureView,
-        normals: &TextureView,
+        normals: Option<&TextureView>,
     ) {
         self.update_constants(&queue, settings);
 
@@ -1038,6 +1052,12 @@ impl SsaoModule {
             ],
         });
 
+        let (prepare_normals_input, prepare_normals_pass) = if let Some(normals) = normals {
+            (normals, &self.prepare_normals_pass)
+        } else {
+            (depth, &self.normals_from_depth_pass)
+        };
+        
         let prepare_normals_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &self.prepare_normals_bgl,
@@ -1056,7 +1076,7 @@ impl SsaoModule {
                 },
                 BindGroupEntry {
                     binding: 2,
-                    resource: BindingResource::TextureView(&normals),
+                    resource: BindingResource::TextureView(&prepare_normals_input),
                 },
                 BindGroupEntry {
                     binding: 3,
@@ -1093,7 +1113,7 @@ impl SsaoModule {
         });
 
         let mut ssao_pass_bgs = Vec::new();
-        for pass in 0..4 {
+        for pass in 0..4 as usize {
             ssao_pass_bgs.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
                 layout: &self.ssao_per_pass_bgl,
@@ -1206,14 +1226,12 @@ impl SsaoModule {
         }
 
         // Prepare normals from input normals
-        {
-            cpass.set_pipeline(&self.prepare_normals_pass);
-            cpass.set_bind_group(0, &prepare_normals_bg, &[]);
+        cpass.set_pipeline(prepare_normals_pass);
+        cpass.set_bind_group(0, &prepare_normals_bg, &[]);
 
-            let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
-            let y = dispatch_size(8, self.buffer_size_info.ssaoBufferHeight);
-            cpass.dispatch(x, y, 1);
-        }
+        let x = dispatch_size(8, self.buffer_size_info.ssaoBufferWidth);
+        let y = dispatch_size(8, self.buffer_size_info.ssaoBufferHeight);
+        cpass.dispatch(x, y, 1);
 
         // SSAO
         cpass.set_pipeline(&self.ssao_pass);
@@ -1227,7 +1245,7 @@ impl SsaoModule {
         }
 
         // Blur
-        let blur_pass_count = 4;
+        let blur_pass_count = settings.blurPassCount;
         let w = 4 * 16 - 2 * blur_pass_count;
         let h = 3 * 16 - 2 * blur_pass_count;
         let x = dispatch_size(w, self.buffer_size_info.ssaoBufferWidth);
@@ -1235,7 +1253,7 @@ impl SsaoModule {
 
         cpass.set_pipeline(&self.blur_pass);
         cpass.set_bind_group(0, &blur_bg, &[]);
-        for pass in 0..4 {
+        for pass in 0..4 as usize {
             cpass.set_bind_group(1, &blur_pass_bgs[pass], &[]);
             cpass.dispatch(x, y, 1);
         }

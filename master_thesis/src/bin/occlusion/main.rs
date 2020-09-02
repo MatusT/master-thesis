@@ -283,9 +283,11 @@ impl framework::ApplicationStructure for Application {
 
         let ssao_module = ssao::SsaoModule::new(&device, width, height);
         let mut ssao_settings = ssao::Settings::default();
-        ssao_settings.radius = 10.0;
+        ssao_settings.radius = covid.bounding_radius() * 2.0;
         ssao_settings.projection = camera.ubo().projection;
-        ssao_settings.horizonAngleThreshold = 0.0;
+        ssao_settings.horizonAngleThreshold = 0.05;
+        ssao_settings.blurPassCount = 8;
+        ssao_settings.sharpness = 0.05;
 
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
@@ -548,7 +550,7 @@ impl framework::ApplicationStructure for Application {
             &mut encoder,
             &self.ssao_settings,
             &self.depth_texture,
-            &self.normals_texture,
+            None            // Some(&self.normals_texture),
         );
 
         {

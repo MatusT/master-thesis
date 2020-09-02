@@ -12,11 +12,15 @@ layout(set = 0, binding = 0, std140) uniform Constants
     GlobalConstants constants;
 };
 
-layout(set = 1, binding = 1) uniform sampler g_PointClampSampler;
-layout(set = 1, binding = 2) uniform texture2D g_DepthIn;;
+// Samplers
+layout(set = 0, binding = 1) uniform sampler g_PointClampSampler;
+
+// Input
+layout(set = 0, binding = 2) uniform texture2D g_DepthIn;
 
 // Output
-layout(set = 1, binding = 3, rgba32f) uniform writeonly image2DArray g_PrepareNormals_NormalOutput;
+layout(set = 0, binding = 3, rgba32f) uniform writeonly image2DArray g_PrepareNormals_NormalOutput;
+
 
 struct PrepareNormalsInputDepths
 {
