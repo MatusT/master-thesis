@@ -13,7 +13,7 @@ impl SphereBillboardsPipeline {
     ) -> Self {
         // Shaders
         let vs_module = device.create_shader_module(include_spirv!("billboards.vert.spv"));
-        let fs_module = device.create_shader_module(include_spirv!("billboards_normals.frag.spv"));
+        let fs_module = device.create_shader_module(include_spirv!("billboards.frag.spv"));
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -23,7 +23,10 @@ impl SphereBillboardsPipeline {
                 &per_molecule_bind_group_layout,
                 &per_structure_bind_group_layout,
             ],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[PushConstantRange {
+                stages: ShaderStage::VERTEX,
+                range: 0..4,
+            }],
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -46,12 +49,14 @@ impl SphereBillboardsPipeline {
                 clamp_depth: false,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[ColorStateDescriptor {
-                format: TextureFormat::Rgba32Float,
-                color_blend: BlendDescriptor::REPLACE,
-                alpha_blend: BlendDescriptor::REPLACE,
-                write_mask: ColorWrite::ALL,
-            }],
+            color_states: &[
+            //     ColorStateDescriptor {
+            //     format: TextureFormat::Rgba32Float,
+            //     color_blend: BlendDescriptor::REPLACE,
+            //     alpha_blend: BlendDescriptor::REPLACE,
+            //     write_mask: ColorWrite::ALL,
+            // }
+            ],
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: true,

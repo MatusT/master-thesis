@@ -248,8 +248,6 @@ pub struct SsaoModule {
     blurred_results: Texture,
     blurred_results_views: Vec<TextureView>,
 
-    pub final_result: TextureView,
-
     constants: Constants,
     constants_buffer: Buffer,
 
@@ -778,24 +776,6 @@ impl SsaoModule {
             }));
         }
 
-        let final_result = device
-            .create_texture(&TextureDescriptor {
-                label: Some("Final results"),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::R32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT
-                    | TextureUsage::STORAGE
-                    | TextureUsage::SAMPLED,
-            })
-            .create_view(&TextureViewDescriptor::default());
-
         let constants = Constants::default();
         let constants_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -856,8 +836,6 @@ impl SsaoModule {
 
             blurred_results,
             blurred_results_views,
-
-            final_result,
 
             constants,
             constants_buffer,
@@ -1001,7 +979,7 @@ impl SsaoModule {
         }
     }
 
-    pub fn draw(
+    pub fn compute(
         &mut self,
         device: &Device,
         queue: &Queue,
@@ -1009,7 +987,8 @@ impl SsaoModule {
         settings: &Settings,
         depth: &TextureView,
         normals: Option<&TextureView>,
-    ) {
+        final_result: &TextureView,
+    ) {       
         self.update_constants(&queue, settings);
 
         // Create bind groups
@@ -1057,7 +1036,7 @@ impl SsaoModule {
         } else {
             (depth, &self.normals_from_depth_pass)
         };
-        
+
         let prepare_normals_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &self.prepare_normals_bgl,
@@ -1204,7 +1183,7 @@ impl SsaoModule {
                 },
                 BindGroupEntry {
                     binding: 4,
-                    resource: BindingResource::TextureView(&self.final_result),
+                    resource: BindingResource::TextureView(&final_result),
                 },
             ],
         });

@@ -1,23 +1,25 @@
 use master_thesis::camera::*;
 use master_thesis::framework;
+use master_thesis::frustrum_culler::*;
 use master_thesis::pipelines::SphereBillboardsPipeline;
 use master_thesis::pvs::*;
 use master_thesis::ssao;
 use master_thesis::structure::*;
-use master_thesis::ApplicationEvent;
 
 use bytemuck::cast_slice;
 use futures::task::LocalSpawn;
 use nalgebra_glm::*;
+use rand::distributions::Distribution;
 use wgpu::util::*;
 use wgpu::*;
-use rand::distributions::Distribution;
 
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 struct ApplicationState {
     pub draw_lod: bool,
     pub draw_occluded: bool,
+    pub animating: bool,
 }
 
 pub struct Application {
@@ -25,6 +27,7 @@ pub struct Application {
     height: u32,
 
     state: ApplicationState,
+    start_time: Instant,
 
     depth_texture: TextureView,
     multisampled_texture: TextureView,
@@ -39,18 +42,30 @@ pub struct Application {
 
     covid: Rc<Structure>,
     covid_pvs: StructurePvsField,
-    covid_transforms: Vec<Mat4>,
+    covid_rotations: Vec<Mat4>,
+    covid_translations: Vec<Mat4>,
     covid_transforms_gpu: Buffer,
     covid_transforms_bgs: Vec<BindGroup>,
 
     ssao_module: ssao::SsaoModule,
-    ssao_settings: ssao::Settings,
+    ssao_finals: [TextureView; 2],
 
     output_pipeline: RenderPipeline,
     output_bind_group: BindGroup,
 }
 
 impl framework::ApplicationStructure for Application {
+    fn required_features() -> wgpu::Features {
+        wgpu::Features::PUSH_CONSTANTS
+    }
+
+    fn required_limits() -> wgpu::Limits {
+        wgpu::Limits {
+            max_push_constant_size: 4,
+            ..wgpu::Limits::default()
+        }
+    }
+
     fn init(
         sc_desc: &wgpu::SwapChainDescriptor,
         device: &wgpu::Device,
@@ -221,13 +236,14 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
         let covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 15, 128);
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 96);
 
         let n = 10;
         let p = 0.25;
-        let n3 = n*n*n;
+        let n3 = n * n * n;
         let rand_distr = rand_distr::Binomial::new(1, p).unwrap();
-        let mut covid_transforms = Vec::new();
+        let mut covid_rotations = Vec::new();
+        let mut covid_translations = Vec::new();
 
         let mut count = 0;
         for i in 0..n3 {
@@ -236,25 +252,27 @@ impl framework::ApplicationStructure for Application {
             }
 
             let sample = rand_distr.sample(&mut rand::thread_rng());
-            println!("{}", sample);
             if sample == 0 {
                 continue;
             }
 
+            covid_rotations.push(rotation((count as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
+
             let position = vec3(
-                ((i % n) - (n / 2)) as f32 * covid.bounding_radius() * 2.0, 
-                (((i / n) % n) - (n / 2)) as f32 * covid.bounding_radius() * 2.0, 
-                ((i / (n * n)) - (n / 2)) as f32 * covid.bounding_radius() * 2.0);
-            covid_transforms.push(translation(&position));
+                ((i % n) - (n / 2)) as f32 * covid.bounding_radius() * 2.0,
+                (((i / n) % n) - (n / 2)) as f32 * covid.bounding_radius() * 2.0,
+                ((i / (n * n)) - (n / 2)) as f32 * covid.bounding_radius() * 2.0,
+            );
+            covid_translations.push(translation(&position));
 
             count += 1;
         }
-        println!("Amount of structures: {}", covid_transforms.len());
-        // println!("Amount of effective atoms: {}", covid_transforms.len());
+        println!("Amount of structures: {}", covid_translations.len());
 
         let covid_transforms_gpu = {
             let mut raw: Vec<f32> = Vec::new();
-            for transform in &covid_transforms {
+            for (translation, rotation) in covid_translations.iter().zip(covid_rotations.iter()) {
+                let transform: Mat4 = translation * rotation;
                 raw.extend_from_slice(transform.as_slice());
                 raw.extend_from_slice(&[0.0; 48]);
             }
@@ -264,8 +282,9 @@ impl framework::ApplicationStructure for Application {
                 usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
             })
         };
+
         let mut covid_transforms_bgs = Vec::new();
-        for i in 0..covid_transforms.len() {
+        for i in 0..covid_translations.len() {
             let i = i as u64;
             covid_transforms_bgs.push(device.create_bind_group(&BindGroupDescriptor {
                 label: None,
@@ -282,12 +301,48 @@ impl framework::ApplicationStructure for Application {
         }
 
         let ssao_module = ssao::SsaoModule::new(&device, width, height);
-        let mut ssao_settings = ssao::Settings::default();
-        ssao_settings.radius = covid.bounding_radius() * 2.0;
-        ssao_settings.projection = camera.ubo().projection;
-        ssao_settings.horizonAngleThreshold = 0.05;
-        ssao_settings.blurPassCount = 8;
-        ssao_settings.sharpness = 0.05;
+        let ssao_finals = [
+            device
+                .create_texture(&TextureDescriptor {
+                    label: Some("Final results"),
+                    size: Extent3d {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::R32Float,
+                    usage: TextureUsage::OUTPUT_ATTACHMENT
+                        | TextureUsage::STORAGE
+                        | TextureUsage::SAMPLED,
+                })
+                .create_view(&TextureViewDescriptor::default()),
+            device
+                .create_texture(&TextureDescriptor {
+                    label: Some("Final results"),
+                    size: Extent3d {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::R32Float,
+                    usage: TextureUsage::OUTPUT_ATTACHMENT
+                        | TextureUsage::STORAGE
+                        | TextureUsage::SAMPLED,
+                })
+                .create_view(&TextureViewDescriptor::default()),
+        ];
+        // let mut ssao_settings = ssao::Settings::default();
+        // ssao_settings.radius = covid.bounding_radius() * 2.0;
+        // ssao_settings.projection = camera.ubo().projection;
+        // ssao_settings.horizonAngleThreshold = 0.05;
+        // ssao_settings.blurPassCount = 8;
+        // ssao_settings.sharpness = 0.05;
 
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
@@ -295,16 +350,28 @@ impl framework::ApplicationStructure for Application {
         let output_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStage::all(),
-                    ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2,
-                        format: TextureFormat::R32Float,
-                        readonly: true,
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::StorageTexture {
+                            dimension: TextureViewDimension::D2,
+                            format: TextureFormat::R32Float,
+                            readonly: true,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::StorageTexture {
+                            dimension: TextureViewDimension::D2,
+                            format: TextureFormat::R32Float,
+                            readonly: true,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -352,22 +419,32 @@ impl framework::ApplicationStructure for Application {
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &output_bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::TextureView(&ssao_module.final_result),
-            }],
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&ssao_finals[0]),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(&ssao_finals[1]),
+                },
+            ],
         });
 
         let state = ApplicationState {
             draw_lod: true,
             draw_occluded: false,
+            animating: false,
         };
+
+        let start_time = Instant::now();
 
         Self {
             width,
             height,
 
             state,
+            start_time,
 
             depth_texture,
             multisampled_texture,
@@ -382,12 +459,13 @@ impl framework::ApplicationStructure for Application {
 
             covid: covid.clone(),
             covid_pvs,
-            covid_transforms,
+            covid_rotations,
+            covid_translations,
             covid_transforms_gpu,
             covid_transforms_bgs,
 
             ssao_module,
-            ssao_settings,
+            ssao_finals,
 
             output_pipeline,
             output_bind_group,
@@ -421,13 +499,16 @@ impl framework::ApplicationStructure for Application {
                             VirtualKeyCode::O => {
                                 self.state.draw_occluded = !self.state.draw_occluded;
                             }
-                            VirtualKeyCode::Add => {
-                                self.ssao_settings.radius += 1.0;
-                                println!("Radius: {}", self.ssao_settings.radius);
-                            }
-                            VirtualKeyCode::Minus => {
-                                self.ssao_settings.radius -= 1.0;
-                                println!("Radius: {}", self.ssao_settings.radius);
+                            // VirtualKeyCode::Add => {
+                            //     self.ssao_settings.radius += 1.0;
+                            //     println!("Radius: {}", self.ssao_settings.radius);
+                            // }
+                            // VirtualKeyCode::Minus => {
+                            //     self.ssao_settings.radius -= 1.0;
+                            //     println!("Radius: {}", self.ssao_settings.radius);
+                            // }
+                            VirtualKeyCode::A => {
+                                self.state.animating = !self.state.animating;
                             }
                             _ => {}
                         };
@@ -449,41 +530,43 @@ impl framework::ApplicationStructure for Application {
         queue: &wgpu::Queue,
         spawner: &impl futures::task::LocalSpawn,
     ) {
+        let time = Instant::now().duration_since(self.start_time);
+        let time = time.as_secs_f32() + time.subsec_millis() as f32;
+        let time: u32 = unsafe { std::mem::transmute(time) };
+
         // Rotate the structure
-        // for transform in self.covid_transforms.iter_mut() {
-        //     *transform = rotation(0.01f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*transform);
-        // }
-        // for x in -1..=1 {
-        //     for y in -1..=1 {
-        //         for z in -1..=1 {
-        //             // vec![rotation(90.0f32.to_radians(), &vec3(0.0, 1.0, 0.0)), translation(&vec3(2.0 * covid.bounding_radius(), 0.0, 0.0))];
-        //             let x = x as f32 * 2.0 * covid.bounding_radius();
-        //             let y = y as f32 * 2.0 * covid.bounding_radius();
-        //             let z = z as f32 * 2.0 * covid.bounding_radius();
-        //             covid_transforms.push(
-        //                 translation(&vec3(x, y, z))
-        //                     * rotation(90.0f32.to_radians(), &vec3(0.0, 1.0, 0.0)),
-        //             );
-        //         }
-        //     }
-        // }
+        for r in self.covid_rotations.iter_mut() {
+            *r = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*r);
+        }
 
         //================== DATA UPLOAD
+        if self.state.animating {
+            self.camera.set_distance(self.camera.distance() - 30.0);
+        }
         self.camera.update_gpu(queue);
+
+        let culler = FrustrumCuller::from_matrix(self.camera.ubo().projection_view);
+
         let mut covid_transforms_f32: Vec<f32> = Vec::new();
-        for transform in &self.covid_transforms {
-            covid_transforms_f32.extend(transform.as_slice());
+        for (translation, rotation) in self
+            .covid_translations
+            .iter()
+            .zip(self.covid_rotations.iter())
+        {
+            let transform: Mat4 = translation * rotation;
+            covid_transforms_f32.extend_from_slice(transform.as_slice());
             covid_transforms_f32.extend_from_slice(&[0.0; 48]);
         }
+
         queue.write_buffer(
             &self.covid_transforms_gpu,
             0,
             cast_slice(&covid_transforms_f32),
         );
 
-        for i in 0..self.covid_transforms.len() {
-            let rotation = self.covid_transforms[i].fixed_slice::<U3, U3>(0, 0);
-            let position = self.covid_transforms[i].column(3).xyz();
+        for i in 0..self.covid_rotations.len() {
+            let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
+            let position = self.covid_translations[i].column(3).xyz();
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
@@ -495,14 +578,16 @@ impl framework::ApplicationStructure for Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &self.normals_texture,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::TRANSPARENT),
-                        store: true,
-                    },
-                }],
+                color_attachments: &[
+                //     RenderPassColorAttachmentDescriptor {
+                //     attachment: &self.normals_texture,
+                //     resolve_target: None,
+                //     ops: Operations {
+                //         load: LoadOp::Clear(Color::TRANSPARENT),
+                //         store: true,
+                //     },
+                // }
+                ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {
@@ -514,18 +599,32 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
+            rpass.set_push_constants(ShaderStage::VERTEX, 0, &[time]);
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            for i in 0..self.covid_transforms.len() {
-                rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
+            let mut culled = 0;
+            for i in 0..self.covid_translations.len() {
+                let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
+                let position = self.covid_translations[i].column(3).xyz();
 
-                let rotation = self.covid_transforms[i].fixed_slice::<U3, U3>(0, 0);
-                let position = self.covid_transforms[i].column(3).xyz();
+                if !culler.test_sphere(vec4(
+                    position.x,
+                    position.y,
+                    position.z,
+                    self.covid.bounding_radius(),
+                )) {
+                    culled += 1;
+                    continue;
+                }
+
                 let direction = self.camera.eye() - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
 
+                rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
                 if self.state.draw_lod {
-                    if self.state.draw_occluded {
+                    if self.state.draw_occluded
+                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
+                    {
                         self.covid.draw_lod(&mut rpass, direction.magnitude());
                     } else {
                         self.covid_pvs.draw_lod(
@@ -535,23 +634,58 @@ impl framework::ApplicationStructure for Application {
                         );
                     }
                 } else {
-                    if self.state.draw_occluded {
+                    if self.state.draw_occluded
+                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
+                    {
                         self.covid.draw(&mut rpass);
                     } else {
                         self.covid_pvs.draw(&mut rpass, direction_norm_rot);
                     }
                 }
             }
+
+            println!("Culled {}", culled);
         }
 
-        self.ssao_module.draw(
+        queue.submit(Some(encoder.finish()));
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+
+        let mut ssao_settings = ssao::Settings::default();
+        ssao_settings.radius = self.covid.bounding_radius() * 2.0;
+        ssao_settings.projection = self.camera.ubo().projection;
+        ssao_settings.horizonAngleThreshold = 0.05;
+        ssao_settings.blurPassCount = 8;
+        ssao_settings.sharpness = 0.05;
+
+        self.ssao_module.compute(
             device,
             queue,
             &mut encoder,
-            &self.ssao_settings,
+            &ssao_settings,
             &self.depth_texture,
-            None            // Some(&self.normals_texture),
+            None, // Some(&self.normals_texture),
+            &self.ssao_finals[0],
         );
+
+        queue.submit(Some(encoder.finish()));
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+
+        ssao_settings.radius = 16.0;
+        ssao_settings.horizonAngleThreshold = 0.00;
+        ssao_settings.blurPassCount = 8;
+        ssao_settings.sharpness = 0.05;
+        self.ssao_module.compute(
+            device,
+            queue,
+            &mut encoder,
+            &ssao_settings,
+            &self.depth_texture,
+            None, // Some(&self.normals_texture),
+            &self.ssao_finals[1],
+        );
+
+        queue.submit(Some(encoder.finish()));
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {

@@ -1,5 +1,9 @@
 #version 460
 
+layout(push_constant) uniform PushConstants {
+    float time;
+};
+
 layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   mat4 projection;
   mat4 view;
@@ -74,10 +78,11 @@ void main() {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
-  const mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
+  mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
+  const float offset = 1.0 * sin(4.0f * 3.14159265359f * time + float(gl_InstanceIndex) / 10.0);
 
   const vec4 center_position =
-      model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0);
+      (model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0)) + vec4(offset, offset, offset, 0.0);
   scale = positions[gl_VertexIndex / 3].w;
 
   const vec2 vertex = scale * vertices[gl_VertexIndex % 3];
