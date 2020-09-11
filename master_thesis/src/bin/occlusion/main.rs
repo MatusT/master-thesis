@@ -238,13 +238,15 @@ impl framework::ApplicationStructure for Application {
         let covid_pvs =
             pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 96);
 
-        let n = 10;
-        let p = 0.25;
-        let n3 = n * n * n;
-        let rand_distr = rand_distr::Binomial::new(1, p).unwrap();
         let mut covid_rotations = Vec::new();
         let mut covid_translations = Vec::new();
 
+        let n = 10;
+        let n3 = n * n * n;
+
+        /*
+        let p = 0.25;
+        let rand_distr = rand_distr::Binomial::new(1, p).unwrap();
         let mut count = 0;
         for i in 0..n3 {
             if count == (n3 as f64 * p) as i32 {
@@ -267,6 +269,22 @@ impl framework::ApplicationStructure for Application {
 
             count += 1;
         }
+        */
+
+        for i in 0..n3 {
+            let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
+            println!("{} {} {}", x, y, z);
+
+            covid_rotations.push(rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
+
+            let position = vec3(
+                x * covid.bounding_radius() * 2.0 * n as f32,
+                y * covid.bounding_radius() * 2.0 * n as f32,
+                z * covid.bounding_radius() * 2.0 * n as f32,
+            );
+            covid_translations.push(translation(&position));
+        }
+
         println!("Amount of structures: {}", covid_translations.len());
 
         let covid_transforms_gpu = {
@@ -651,9 +669,9 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         let mut ssao_settings = ssao::Settings::default();
-        ssao_settings.radius = self.covid.bounding_radius() * 2.0;
+        ssao_settings.radius = self.covid.bounding_radius() * 4.0;
         ssao_settings.projection = self.camera.ubo().projection;
-        ssao_settings.horizonAngleThreshold = 0.05;
+        ssao_settings.horizonAngleThreshold = 0.10;
         ssao_settings.blurPassCount = 8;
         ssao_settings.sharpness = 0.05;
 

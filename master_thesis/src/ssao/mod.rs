@@ -988,7 +988,7 @@ impl SsaoModule {
         depth: &TextureView,
         normals: Option<&TextureView>,
         final_result: &TextureView,
-    ) {       
+    ) {
         self.update_constants(&queue, settings);
 
         // Create bind groups
