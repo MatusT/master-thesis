@@ -18,22 +18,28 @@ layout(set = 1, binding = 0, std430) buffer AtomPositions {
 };
 
 layout(location = 0) out vec2 uv;
-layout(location = 1) out vec4 position_cs;
+layout(location = 1) out vec4 position_atom_cs;
+layout(location = 2) out vec4 position_billboard_cs;
+layout(location = 3) out vec4 position_billboard_ss;
 
 void main() {
   const vec3 camera_right = vec3(camera.view[0][0], camera.view[1][0], camera.view[2][0]);
   const vec3 camera_up = vec3(camera.view[0][1], camera.view[1][1], camera.view[2][1]);
 
-  const vec3 atom_position = atom_positions[gl_VertexIndex / 3].xyz;
-  const vec3 move_vec = normalize(camera.position.xyz - atom_position);
-  const vec3 billboard_position_ws = atom_position + move_vec;
-
-  const vec3 center_position = billboard_position_ws;
   const vec2 vertex = vertices[gl_VertexIndex % 3];
-  
-  const vec4 position_ws = vec4(center_position + vertex.x * camera_right + vertex.y * camera_up, 1.0);
+  const vec3 atom_center = atom_positions[gl_VertexIndex / 3].xyz;
+  const vec3 move_vec = normalize(camera.position.xyz - atom_center);
+
+  vec4 position_atom_ws = vec4(atom_center + vertex.x * camera_right + vertex.y * camera_up, 1.0);
+
+  vec4 billboard_position_ws = vec4(atom_center + move_vec, 1.0);  
+  billboard_position_ws = vec4(billboard_position_ws.xyz + vertex.x * camera_right + vertex.y * camera_up, 1.0);
 
   uv = vertex;
-  position_cs = camera.projection_view * position_ws;
-  gl_Position = position_cs;
+
+  position_atom_cs = camera.projection_view * position_atom_ws;
+  position_billboard_cs = camera.projection_view * billboard_position_ws;
+  position_billboard_ss = position_billboard_cs / position_billboard_cs.w;
+
+  gl_Position = position_billboard_cs;
 }

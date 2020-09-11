@@ -85,7 +85,7 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            5.0,
+            10.0,
             1.0,
         );
 
@@ -180,8 +180,8 @@ impl framework::ApplicationStructure for Application {
 
         // Data
         let atom_positions: Vec<f32> = vec![
-            0.5, 0.5, 0.5, 1.0,
             0.0, 0.0, 0.0, 1.0,
+            0.5, 0.5, 0.5, 1.0,
             0.5, 0.5, -0.5, 1.0,
             -0.5, 0.5, 0.5, 1.0,
             0.5, -0.5, 0.5, 1.0,
