@@ -141,6 +141,7 @@ impl BufferSizeInfo {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Settings {
     ///
     pub projection: Mat4,
@@ -186,6 +187,30 @@ pub struct Settings {
 
     /// [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving similarity weighting for neighbouring pixels. Should be greater than 0.0.
     pub bilateralSimilarityDistanceSigma: f32,
+}
+
+impl Settings {
+    pub fn add(&mut self, id: u32) {
+        match id {
+            0 => self.shadowMultiplier += 0.1,
+            1 => self.shadowPower += 0.1,
+            2 => self.horizonAngleThreshold += 0.01,
+            3 => self.sharpness += 0.1,
+            4 => self.detailShadowStrength += 0.1,
+            _ => {}
+        };
+    }
+
+    pub fn sub(&mut self, id: u32) {
+        match id {
+            0 => self.shadowMultiplier -= 0.1,
+            1 => self.shadowPower -= 0.1,
+            2 => self.horizonAngleThreshold -= 0.01,
+            3 => self.sharpness -= 0.1,
+            4 => self.detailShadowStrength -= 0.1,
+            _ => {}
+        };
+    }
 }
 
 impl Default for Settings {

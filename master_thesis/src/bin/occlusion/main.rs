@@ -20,6 +20,10 @@ struct ApplicationState {
     pub draw_lod: bool,
     pub draw_occluded: bool,
     pub animating: bool,
+
+    pub ssao_settings: [ssao::Settings; 2],
+    pub ssao_modifying: usize,
+    pub ssao_parameter: u32,
 }
 
 pub struct Application {
@@ -61,7 +65,7 @@ impl framework::ApplicationStructure for Application {
 
     fn required_limits() -> wgpu::Limits {
         wgpu::Limits {
-            max_push_constant_size: 4,
+            max_push_constant_size: 32,
             ..wgpu::Limits::default()
         }
     }
@@ -146,11 +150,32 @@ impl framework::ApplicationStructure for Application {
         // Data
         let args: Vec<String> = std::env::args().collect();
 
-        let covid = Rc::new(Structure::from_ron(
-            &device,
-            &args[1],
-            &per_molecule_bind_group_layout,
-        ));
+        let mut covid = Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout);
+
+        for molecule in covid.molecules_mut() {
+            println!("Molecule {}", molecule.name());
+            let new_color = match molecule.name() {
+                "S" => vec3(0.0, 0.93, 1.0),
+                "E" => vec3(1.0, 1.0, 1.0),
+                "M" => vec3(1.0, 1.0, 1.0),
+                "NTD" =>vec3(1.0, 1.0, 1.0),
+                "CTD" => vec3(1.0, 1.0, 1.0),
+                "FLUID_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
+                "FLUID_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
+                "CRYSTALL_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
+                "CRYSTALL_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
+                "P" => vec3(1.0, 1.0, 1.0),
+                "G" => vec3(1.0, 1.0, 1.0),
+                "C" => vec3(1.0, 1.0, 1.0),
+                "A" => vec3(1.0, 1.0, 1.0),
+                "U" => vec3(1.0, 1.0, 1.0),
+                _ => vec3(1.0, 1.0, 1.0),
+            };
+
+            molecule.set_color(&new_color);
+        }
+
+        let covid = Rc::new(covid);
 
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(
@@ -223,7 +248,7 @@ impl framework::ApplicationStructure for Application {
                 mip_level_count: 1,
                 sample_count,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba32Float,
+                format: TextureFormat::Rgba8Unorm,
                 usage: TextureUsage::OUTPUT_ATTACHMENT
                     | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
@@ -273,7 +298,6 @@ impl framework::ApplicationStructure for Application {
 
         for i in 0..n3 {
             let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
-            println!("{} {} {}", x, y, z);
 
             covid_rotations.push(rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
 
@@ -355,12 +379,6 @@ impl framework::ApplicationStructure for Application {
                 })
                 .create_view(&TextureViewDescriptor::default()),
         ];
-        // let mut ssao_settings = ssao::Settings::default();
-        // ssao_settings.radius = covid.bounding_radius() * 2.0;
-        // ssao_settings.projection = camera.ubo().projection;
-        // ssao_settings.horizonAngleThreshold = 0.05;
-        // ssao_settings.blurPassCount = 8;
-        // ssao_settings.sharpness = 0.05;
 
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
@@ -372,20 +390,36 @@ impl framework::ApplicationStructure for Application {
                     BindGroupLayoutEntry {
                         binding: 0,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::StorageTexture {
-                            dimension: TextureViewDimension::D2,
-                            format: TextureFormat::R32Float,
-                            readonly: true,
-                        },
+                        ty: BindingType::Sampler { comparison: false },
                         count: None,
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::StorageTexture {
+                        ty: BindingType::SampledTexture {
                             dimension: TextureViewDimension::D2,
-                            format: TextureFormat::R32Float,
-                            readonly: true,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -434,16 +468,36 @@ impl framework::ApplicationStructure for Application {
             alpha_to_coverage_enabled: false,
         });
 
+        let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Linear,
+            mipmap_filter: FilterMode::Linear,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: std::f32::MAX,
+            ..Default::default()
+        });
+
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &output_bind_group_layout,
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::TextureView(&ssao_finals[0]),
+                    resource: BindingResource::Sampler(&linear_clamp_sampler),
                 },
                 BindGroupEntry {
                     binding: 1,
+                    resource: BindingResource::TextureView(&output_texture),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(&ssao_finals[0]),
+                },
+                BindGroupEntry {
+                    binding: 3,
                     resource: BindingResource::TextureView(&ssao_finals[1]),
                 },
             ],
@@ -453,6 +507,32 @@ impl framework::ApplicationStructure for Application {
             draw_lod: true,
             draw_occluded: false,
             animating: false,
+
+            ssao_settings: [
+                ssao::Settings {
+                    radius: covid.bounding_radius() * 8.0,
+                    projection: camera.ubo().projection,
+                    shadowMultiplier: 1.0,
+                    shadowPower: 1.0,
+                    horizonAngleThreshold: 0.2,                    
+                    sharpness: 1.0,
+                    detailShadowStrength: 5.0,                    
+                    blurPassCount: 8,
+                    .. Default::default()
+                },
+                ssao::Settings {
+                    radius: 16.0,
+                    shadowMultiplier: 2.0,
+                    shadowPower: 1.5,
+                    horizonAngleThreshold: 0.0,                    
+                    sharpness: 0.0,
+                    detailShadowStrength: 3.0,                    
+                    blurPassCount: 8,
+                    .. Default::default()
+                },
+            ],
+            ssao_modifying: 0,
+            ssao_parameter: 0,
         };
 
         let start_time = Instant::now();
@@ -506,6 +586,7 @@ impl framework::ApplicationStructure for Application {
 
         self.camera.window_event(&event);
 
+        let mut changed = false;
         match event {
             KeyboardInput { input, .. } => {
                 if input.state == ElementState::Pressed {
@@ -517,14 +598,34 @@ impl framework::ApplicationStructure for Application {
                             VirtualKeyCode::O => {
                                 self.state.draw_occluded = !self.state.draw_occluded;
                             }
-                            // VirtualKeyCode::Add => {
-                            //     self.ssao_settings.radius += 1.0;
-                            //     println!("Radius: {}", self.ssao_settings.radius);
-                            // }
-                            // VirtualKeyCode::Minus => {
-                            //     self.ssao_settings.radius -= 1.0;
-                            //     println!("Radius: {}", self.ssao_settings.radius);
-                            // }
+                            VirtualKeyCode::Key1 => {
+                                self.state.ssao_modifying = 0;
+                                changed = true;
+                            }
+                            VirtualKeyCode::Key2 => {
+                                self.state.ssao_modifying = 1;
+                                changed = true;
+                            }
+                            VirtualKeyCode::Add => {
+                                self.state.ssao_settings[self.state.ssao_modifying]
+                                    .add(self.state.ssao_parameter);
+                                changed = true;
+                            }
+                            VirtualKeyCode::Subtract => {
+                                self.state.ssao_settings[self.state.ssao_modifying]
+                                    .sub(self.state.ssao_parameter);
+                                changed = true;
+                            }
+                            VirtualKeyCode::Up => {
+                                self.state.ssao_parameter -=
+                                    if self.state.ssao_parameter == 0 { 0 } else { 1 };
+                                changed = true;
+                            }
+                            VirtualKeyCode::Down => {
+                                self.state.ssao_parameter +=
+                                    if self.state.ssao_parameter == 5 { 0 } else { 1 };
+                                changed = true;
+                            }
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
                             }
@@ -535,6 +636,63 @@ impl framework::ApplicationStructure for Application {
             }
             _ => {}
         };
+
+        if changed {
+            println!("");
+            println!(
+                "Ssao settings {}",
+                if self.state.ssao_modifying == 0 {
+                    "Far"
+                } else {
+                    "Near"
+                }
+            );
+            println!(
+                "[{}] Shadow multiplier: {}",
+                if self.state.ssao_parameter != 0 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].shadowMultiplier,
+            );
+            println!(
+                "[{}] Shadow power: {}",
+                if self.state.ssao_parameter != 1 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].shadowPower,
+            );
+            println!(
+                "[{}] Horizon angle threshold: {}",
+                if self.state.ssao_parameter != 2 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].horizonAngleThreshold,
+            );
+            println!(
+                "[{}] Sharpness: {}",
+                if self.state.ssao_parameter != 3 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].sharpness,
+            );
+            println!(
+                "[{}] Detail shadow strength: {}",
+                if self.state.ssao_parameter != 4 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].detailShadowStrength,
+            );
+        }
     }
 
     fn device_event(&mut self, event: winit::event::DeviceEvent) {
@@ -582,13 +740,20 @@ impl framework::ApplicationStructure for Application {
             cast_slice(&covid_transforms_f32),
         );
 
+        let mut computed_count = 0;
         for i in 0..self.covid_rotations.len() {
+            if computed_count > 3 {
+                return;
+            }
+
             let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
             let position = self.covid_translations[i].column(3).xyz();
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
-            futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction));
+            if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction)) {
+                computed_count += 1;
+            }
         }
 
         //================== RENDER MOLECULES
@@ -596,16 +761,14 @@ impl framework::ApplicationStructure for Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[
-                //     RenderPassColorAttachmentDescriptor {
-                //     attachment: &self.normals_texture,
-                //     resolve_target: None,
-                //     ops: Operations {
-                //         load: LoadOp::Clear(Color::TRANSPARENT),
-                //         store: true,
-                //     },
-                // }
-                ],
+                color_attachments: &[RenderPassColorAttachmentDescriptor {
+                    attachment: &self.output_texture,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
+                }],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {
@@ -662,24 +825,26 @@ impl framework::ApplicationStructure for Application {
                 }
             }
 
-            println!("Culled {}", culled);
+            // println!("Culled {}", culled);
         }
 
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        let mut ssao_settings = ssao::Settings::default();
-        ssao_settings.radius = self.covid.bounding_radius() * 4.0;
-        ssao_settings.projection = self.camera.ubo().projection;
-        ssao_settings.horizonAngleThreshold = 0.10;
-        ssao_settings.blurPassCount = 8;
-        ssao_settings.sharpness = 0.05;
+        // let mut ssao_settings = ssao::Settings::default();
+        // ssao_settings.radius = self.covid.bounding_radius() * 8.0;
+        // ssao_settings.projection = self.camera.ubo().projection;
+        // ssao_settings.horizonAngleThreshold = 0.2;
+        // ssao_settings.blurPassCount = 8;
+        // ssao_settings.sharpness = 1.0;
+        // ssao_settings.detailShadowStrength = 2.0;
+        // ssao_settings.shadowMultiplier = 1.0;
 
         self.ssao_module.compute(
             device,
             queue,
             &mut encoder,
-            &ssao_settings,
+            &self.state.ssao_settings[0],
             &self.depth_texture,
             None, // Some(&self.normals_texture),
             &self.ssao_finals[0],
@@ -688,15 +853,16 @@ impl framework::ApplicationStructure for Application {
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        ssao_settings.radius = 16.0;
-        ssao_settings.horizonAngleThreshold = 0.00;
-        ssao_settings.blurPassCount = 8;
-        ssao_settings.sharpness = 0.05;
+        // ssao_settings.radius = 16.0;
+        // ssao_settings.horizonAngleThreshold = 0.00;
+        // ssao_settings.blurPassCount = 8;
+        // ssao_settings.sharpness = 1.0;
+
         self.ssao_module.compute(
             device,
             queue,
             &mut encoder,
-            &ssao_settings,
+            &self.state.ssao_settings[1],
             &self.depth_texture,
             None, // Some(&self.normals_texture),
             &self.ssao_finals[1],

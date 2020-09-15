@@ -80,11 +80,12 @@ impl framework::ApplicationStructure for Application {
         let mut camera = RotationCamera::new(
             &device,
             &camera_bgl,
-            &reversed_infinite_perspective_rh_zo(
-                sc_desc.width as f32 / sc_desc.height as f32,
-                0.785398163,
-                0.1,
-            ),
+            &ortho_rh_zo(-2.0, 2.0, -2.0, 2.0, 1000.0, -1000.0),
+            // &reversed_infinite_perspective_rh_zo(
+            //     sc_desc.width as f32 / sc_desc.height as f32,
+            //     0.785398163,
+            //     0.1,
+            // ),
             10.0,
             1.0,
         );
@@ -149,11 +150,7 @@ impl framework::ApplicationStructure for Application {
                 }),
                 vertex_state: VertexStateDescriptor {
                     index_format: IndexFormat::Uint16,
-                    vertex_buffers: &[VertexBufferDescriptor {
-                        stride: 12,
-                        step_mode: InputStepMode::Instance,
-                        attributes: &vertex_attr_array![0 => Float3],
-                    }],
+                    vertex_buffers: &[],
                 },
                 sample_count,
                 sample_mask: !0,
@@ -179,13 +176,18 @@ impl framework::ApplicationStructure for Application {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Data
-        let atom_positions: Vec<f32> = vec![
-            0.0, 0.0, 0.0, 1.0,
-            0.5, 0.5, 0.5, 1.0,
-            0.5, 0.5, -0.5, 1.0,
-            -0.5, 0.5, 0.5, 1.0,
-            0.5, -0.5, 0.5, 1.0,
-        ];
+        // let atom_positions: Vec<f32> = vec![
+        //     0.0, 0.0, 0.0, 1.0,
+        //     0.5, 0.5, 0.5, 1.0,
+        //     0.5, 0.5, -0.5, 1.0,
+        //     -0.5, 0.5, 0.5, 1.0,
+        //     0.5, -0.5, 0.5, 1.0,
+        // ];
+        let mut atom_positions = Vec::new();
+        for i in 0..500 {
+            atom_positions.extend_from_slice(&[-1.0 * i as f32, 0.0, 0.0, 0.0]);
+        }
+
         let atom_positions_len = (atom_positions.len() / 4) as u32;
 
         let atom_positions = device.create_buffer_init(&BufferInitDescriptor {
@@ -255,21 +257,18 @@ impl framework::ApplicationStructure for Application {
 
         if changed {
             if self.greater {
-                self.camera.set_projection(&infinite_perspective_rh_zo(
-                    self.width as f32 / self.height as f32,
-                    0.785398163,
-                    0.1,
-                ));
+                self.camera
+                    .set_projection(&ortho_rh_zo(-2.0, 2.0, -2.0, 2.0, -1000.0, 1000.0));
             } else {
-                self.camera.set_projection(&reversed_infinite_perspective_rh_zo(
-                    self.width as f32 / self.height as f32,
-                    0.785398163,
-                    0.1,
-                ));
+                self.camera
+                    .set_projection(&ortho_rh_zo(-2.0, 2.0, -2.0, 2.0, 1000.0, -1000.0));
             }
 
             let pipeline_index = 2 * (self.early as usize) + self.greater as usize;
-            println!("Early: {:?} | Greater: {:?} | Index: {}", self.early, self.greater, pipeline_index);
+            println!(
+                "Early: {:?} | Greater: {:?} | Index: {}",
+                self.early, self.greater, pipeline_index
+            );
         }
     }
 
@@ -290,16 +289,14 @@ impl framework::ApplicationStructure for Application {
         let atoms_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &self.atoms_bgl,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer {
-                        buffer: &self.atom_positions,
-                        offset: 0,
-                        size: None,
-                    },
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer {
+                    buffer: &self.atom_positions,
+                    offset: 0,
+                    size: None,
                 },
-            ],
+            }],
         });
 
         //================== RENDER MOLECULES
@@ -329,10 +326,7 @@ impl framework::ApplicationStructure for Application {
             rpass.set_pipeline(&self.pipelines[pipeline_index]);
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
             rpass.set_bind_group(1, &atoms_bg, &[]);
-            rpass.draw(
-                0..self.atom_positions_len * 3,
-                0..1,
-            );
+            rpass.draw(0..self.atom_positions_len * 3, 0..1);
         }
 
         queue.submit(Some(encoder.finish()));

@@ -7,7 +7,7 @@
 ///!      | has multiple
 ///! Vec<Structure>
 use bytemuck::cast_slice;
-use nalgebra_glm::{distance, length, vec3};
+use nalgebra_glm::{distance, length, vec3, Vec3};
 use rpdb;
 use rpdb::BoundingBox;
 use rpdb::FromRon;
@@ -18,6 +18,8 @@ use crate::hilbert;
 
 /// GPU represantion of a molecule for visualization.
 pub struct Molecule {
+    name: String,
+
     /// Buffer containing atoms/spheres of molecule and Its level of detail representations.
     atoms: Buffer,
 
@@ -31,11 +33,16 @@ pub struct Molecule {
 
     ///
     bounding_radius: f32,
+
+    ///
+    color: Vec3,
 }
 
 impl Molecule {
     pub fn from_ron<P: AsRef<std::path::Path>>(device: &Device, path: P) -> Self {
-        let molecule = rpdb::molecule::Molecule::from_ron(path);
+        let name = path.as_ref().file_stem().unwrap().to_str().unwrap();
+
+        let molecule = rpdb::molecule::Molecule::from_ron(&path);
 
         let mut lods: Vec<(f32, std::ops::Range<u32>)> = Vec::new();
         let mut atoms = Vec::new();
@@ -62,11 +69,17 @@ impl Molecule {
         let bounding_radius = distance(&bounding_box.max, &bounding_box.min) / 2.0;
 
         Self {
+            name: name.to_string(),
             atoms,
             lods,
             bounding_box,
             bounding_radius,
+            color: vec3(1.0, 1.0, 1.0),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn atoms(&self) -> &Buffer {
@@ -79,6 +92,14 @@ impl Molecule {
 
     pub fn bounding_box(&self) -> BoundingBox {
         self.bounding_box
+    }
+
+    pub fn color(&self) -> Vec3 {
+        self.color
+    }
+
+    pub fn set_color(&mut self, color: &Vec3) {
+        self.color = *color;
     }
 }
 
@@ -196,6 +217,10 @@ impl Structure {
         &self.molecules
     }
 
+    pub fn molecules_mut(&mut self) -> &mut [Molecule] {
+        &mut self.molecules
+    }
+
     pub fn transforms(&self) -> &[(Buffer, usize)] {
         &self.transforms
     }
@@ -222,6 +247,9 @@ impl Structure {
 
             let start = self.molecules()[molecule_id].lods()[0].1.start;
             let end = self.molecules()[molecule_id].lods()[0].1.end;
+
+            let color: [f32; 3] = self.molecules()[molecule_id].color.into();
+            rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
             rpass.draw(start..end, 0..self.transforms()[molecule_id].1 as u32);
         }
     }
@@ -238,6 +266,9 @@ impl Structure {
                 {
                     let start = self.molecules()[molecule_id].lods()[i].1.start;
                     let end = self.molecules()[molecule_id].lods()[i].1.end;
+
+                    let color: [f32; 3] = self.molecules()[molecule_id].color.into();
+                    rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
                     rpass.draw(start..end, 0..self.transforms()[molecule_id].1 as u32);
 
                     break;

@@ -23,10 +23,16 @@ impl SphereBillboardsPipeline {
                 &per_molecule_bind_group_layout,
                 &per_structure_bind_group_layout,
             ],
-            push_constant_ranges: &[PushConstantRange {
-                stages: ShaderStage::VERTEX,
-                range: 0..4,
-            }],
+            push_constant_ranges: &[
+                PushConstantRange {
+                    stages: ShaderStage::VERTEX,
+                    range: 0..4,
+                },
+                PushConstantRange {
+                    stages: ShaderStage::FRAGMENT,
+                    range: 16..32,
+                },
+            ],
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -50,12 +56,13 @@ impl SphereBillboardsPipeline {
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[
-            //     ColorStateDescriptor {
-            //     format: TextureFormat::Rgba32Float,
-            //     color_blend: BlendDescriptor::REPLACE,
-            //     alpha_blend: BlendDescriptor::REPLACE,
-            //     write_mask: ColorWrite::ALL,
-            // }
+                // Output color
+                ColorStateDescriptor {
+                    format: TextureFormat::Rgba8Unorm,
+                    color_blend: BlendDescriptor::REPLACE,
+                    alpha_blend: BlendDescriptor::REPLACE,
+                    write_mask: ColorWrite::ALL,
+                },
             ],
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,

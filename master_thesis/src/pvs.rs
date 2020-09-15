@@ -273,9 +273,9 @@ impl StructurePvsField {
         self.snapped_to_spherical(self.index_to_snapped(index))
     }
 
-    pub async fn compute(&mut self, device: &Device, queue: &Queue, index: usize) {
+    pub async fn compute(&mut self, device: &Device, queue: &Queue, index: usize) -> bool {
         if self.sets[index].is_some() {
-            return;
+            return false;
         }
 
         let mut visible = Vec::new();
@@ -405,9 +405,11 @@ impl StructurePvsField {
 
         self.sets[index] = Some(StructurePvs { visible });
         self.reduce(index);
+
+        return true;
     }
 
-    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) {
+    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> bool {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
         self.compute(device, queue, index).await
@@ -514,41 +516,52 @@ impl StructurePvsField {
 
     pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
-        let pvs = self.sets[index].as_ref().unwrap();
 
-        for molecule_id in 0..self.structure.molecules().len() {
-            rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+        if let Some(pvs) = self.sets[index].as_ref() {
+            for molecule_id in 0..self.structure.molecules().len() {
+                let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
+                rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
 
-            for range in pvs.visible[molecule_id].iter() {
-                let start = self.structure.molecules()[molecule_id].lods()[0].1.start;
-                let end = self.structure.molecules()[molecule_id].lods()[0].1.end;
-                rpass.draw(start..end, range.0..range.1);
+                for range in pvs.visible[molecule_id].iter() {
+                    let start = self.structure.molecules()[molecule_id].lods()[0].1.start;
+                    let end = self.structure.molecules()[molecule_id].lods()[0].1.end;
+
+                    rpass.draw(start..end, range.0..range.1);
+                }
             }
+        } else {
+            self.structure.draw(rpass);
         }
     }
 
     pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3, distance: f32) {
         let index = self.spherical_to_index(cartesian_to_spherical(&eye));
-        let pvs = self.sets[index].as_ref().unwrap();
 
-        for molecule_id in 0..self.structure.molecules().len() {
-            rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+        if let Some(pvs) = self.sets[index].as_ref() {
+            for molecule_id in 0..self.structure.molecules().len() {
+                let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
+                rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
 
-            for i in 0..self.structure.molecules()[molecule_id].lods().len() {
-                if (i == self.structure.molecules()[molecule_id].lods().len() - 1)
-                    || (distance > self.structure.molecules()[molecule_id].lods()[i].0
-                        && distance < self.structure.molecules()[molecule_id].lods()[i + 1].0)
-                {
-                    let start = self.structure.molecules()[molecule_id].lods()[i].1.start;
-                    let end = self.structure.molecules()[molecule_id].lods()[i].1.end;
+                for i in 0..self.structure.molecules()[molecule_id].lods().len() {
+                    if (i == self.structure.molecules()[molecule_id].lods().len() - 1)
+                        || (distance > self.structure.molecules()[molecule_id].lods()[i].0
+                            && distance < self.structure.molecules()[molecule_id].lods()[i + 1].0)
+                    {
+                        let start = self.structure.molecules()[molecule_id].lods()[i].1.start;
+                        let end = self.structure.molecules()[molecule_id].lods()[i].1.end;
 
-                    for range in pvs.visible[molecule_id].iter() {
-                        rpass.draw(start..end, range.0..range.1);
+                        for range in pvs.visible[molecule_id].iter() {
+                            rpass.draw(start..end, range.0..range.1);
+                        }
+
+                        break;
                     }
-
-                    break;
                 }
             }
+        } else {
+            self.structure.draw_lod(rpass, distance);
         }
     }
 }
