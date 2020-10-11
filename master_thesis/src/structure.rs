@@ -243,6 +243,13 @@ impl Structure {
 
     pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>) {
         for molecule_id in 0..self.molecules().len() {
+            if self.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE" 
+            && self.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
+            && self.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
+            && self.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2" {
+                continue;
+            }
+
             rpass.set_bind_group(1, &self.bind_groups()[molecule_id], &[]);
 
             let start = self.molecules()[molecule_id].lods()[0].1.start;

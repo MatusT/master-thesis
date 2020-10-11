@@ -39,6 +39,7 @@ pub struct Application {
     output_texture: TextureView,
 
     camera: RotationCamera,
+    camera_bind_group_layout: BindGroupLayout,
 
     billboards_pipeline: SphereBillboardsPipeline,
 
@@ -56,6 +57,9 @@ pub struct Application {
 
     output_pipeline: RenderPipeline,
     output_bind_group: BindGroup,
+    
+    reduce: u32,
+    recompute_pvs: bool,
 }
 
 impl framework::ApplicationStructure for Application {
@@ -143,7 +147,7 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            6.0 * 1500.0,
+            1500.0,
             100.0,
         );
 
@@ -179,7 +183,7 @@ impl framework::ApplicationStructure for Application {
         let covid = Rc::new(covid);
 
         // Pipelines
-        let billboards_pipeline = SphereBillboardsPipeline::new(
+        let billboards_pipeline = SphereBillboardsPipeline::new_debug(
             &device,
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
@@ -262,26 +266,10 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
         let covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 96);
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 2, 1024);
 
-        let mut covid_rotations = Vec::new();
-        let mut covid_translations = Vec::new();
-
-        let n = 10;
-        let n3 = n * n * n;
-
-        for i in 0..n3 {
-            let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
-
-            covid_rotations.push(rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
-
-            let position = vec3(
-                x * covid.bounding_radius() * 2.0 * n as f32,
-                y * covid.bounding_radius() * 2.0 * n as f32,
-                z * covid.bounding_radius() * 2.0 * n as f32,
-            );
-            covid_translations.push(translation(&position));
-        }
+        let covid_rotations = vec![rotation(0.0, &vec3(0.0, 1.0, 0.0))];
+        let covid_translations = vec![translation(&vec3(0.0, 0.0, 0.0))];
 
         println!("Amount of structures: {}", covid_translations.len());
 
@@ -478,8 +466,8 @@ impl framework::ApplicationStructure for Application {
         });
 
         let state = ApplicationState {
-            draw_lod: true,
-            draw_occluded: false,
+            draw_lod: false,
+            draw_occluded: true,
             animating: false,
 
             ssao_settings: [
@@ -524,6 +512,7 @@ impl framework::ApplicationStructure for Application {
             output_texture,
 
             camera,
+            camera_bind_group_layout,
 
             billboards_pipeline,
 
@@ -541,6 +530,9 @@ impl framework::ApplicationStructure for Application {
 
             output_pipeline,
             output_bind_group,
+
+            reduce: 1024,
+            recompute_pvs: false,
         }
     }
 
@@ -602,6 +594,10 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
+                            }
+                            VirtualKeyCode::R => {
+                                self.reduce -= 128;
+                                self.recompute_pvs = true;
                             }
                             _ => {}
                         };
@@ -679,16 +675,20 @@ impl framework::ApplicationStructure for Application {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         spawner: &impl futures::task::LocalSpawn,
-    ) {       
-        // println!("Last render time in {:?} ms", start.elapsed().as_micros());
-
+    ) {
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
         let time: u32 = unsafe { std::mem::transmute(time) };
 
         // Rotate the structure
-        for r in self.covid_rotations.iter_mut() {
-            *r = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*r);
+        // for r in self.covid_rotations.iter_mut() {
+        //     *r = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*r);
+        // }
+
+        if self.recompute_pvs {
+            self.covid_pvs = self.pvs_module.pvs_field(&device, &self.camera_bind_group_layout, self.covid.clone(), 2, self.reduce as usize);
+            self.recompute_pvs = false;
+            println!("{}", self.reduce);
         }
 
         //================== DATA UPLOAD
@@ -718,8 +718,8 @@ impl framework::ApplicationStructure for Application {
 
         let mut computed_count = 0;
         for i in 0..self.covid_rotations.len() {
-            if computed_count > 10 {
-                continue;
+            if computed_count > 6 {
+                break;
             }
 
             let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
@@ -727,11 +727,13 @@ impl framework::ApplicationStructure for Application {
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
-            // let start = Instant::now();
             if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction)) {
                 computed_count += 1;
-                // println!("Compute in {:?} ms", start.elapsed().as_micros());
-            }            
+            }
+
+            if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, -direction)) {
+                computed_count += 1;
+            }
         }
 
         //================== RENDER MOLECULES
@@ -798,7 +800,7 @@ impl framework::ApplicationStructure for Application {
                     {
                         self.covid.draw(&mut rpass);
                     } else {
-                        self.covid_pvs.draw(&mut rpass, direction_norm_rot);
+                        self.covid_pvs.draw(&mut rpass, -direction_norm_rot);
                     }
                 }
             }

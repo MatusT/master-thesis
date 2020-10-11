@@ -30,6 +30,10 @@ layout(location = 2) out vec4 position_vs;
 layout(location = 3) out vec4 position_cs;
 layout(location = 4) out flat float scale;
 
+#ifdef DEBUG
+layout(location = 5) out vec3 color;
+#endif
+
 const vec2 vertices[3] = {
     vec2(-1.72, -1.0),
     vec2(1.72, -1.0),
@@ -93,6 +97,12 @@ void main() {
   center_vs = view * center_position;
   position_vs = view * position_ws;
   position_cs = projection_view * position_ws;
+
+  #ifdef DEBUG
+  const uint id = (gl_InstanceIndex / 3) / 256;
+  const uint mhash = hash(id);
+	color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
+  #endif
 
   gl_Position = position_cs;
 }

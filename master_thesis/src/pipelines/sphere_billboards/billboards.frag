@@ -17,6 +17,9 @@ layout(location = 1) in flat vec4 center_vs;
 layout(location = 2) in vec4 position_vs;
 layout(location = 3) in vec4 position_cs;
 layout(location = 4) in flat float scale;
+#ifdef DEBUG
+layout(location = 5) in vec3 in_color;
+#endif
 
 layout(location = 0) out vec4 out_color;
 
@@ -46,6 +49,10 @@ void main()
 	#endif
 
 	// z = min(z / scale + 0.33, 1.0);
+	#ifdef DEBUG
+	out_color = vec4(in_color, 1.0);
+	#else
 	z = remap(z, 0.0, scale, 0.5, 1.0);
 	out_color = vec4(z * color.xyz, 1.0);
+	#endif
 }

@@ -70,7 +70,7 @@ fn window_setup(title: &str) -> WindowSetup {
     builder = builder.with_title(title);
     builder = builder.with_inner_size(winit::dpi::PhysicalSize {
         width: 1920,
-        height: 1200,
+        height: 1080,
     });
 
     let window = builder.build(&event_loop).unwrap();

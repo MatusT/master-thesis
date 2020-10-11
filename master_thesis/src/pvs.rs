@@ -42,8 +42,8 @@ impl StructurePvsModule {
             .create_texture(&TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: 1024,
-                    height: 1024,
+                    width: 512,
+                    height: 512,
                     depth: 1,
                 },
                 mip_level_count: 1,
@@ -223,7 +223,7 @@ pub struct StructurePvsField {
 }
 
 impl StructurePvsField {
-    fn spherical_to_snapped(&self, spherical_coords: Vec2) -> TVec2<u32> {
+    pub fn spherical_to_snapped(&self, spherical_coords: Vec2) -> TVec2<u32> {
         // Convert spherical coordinates to degrees and modulo them into the range of 0-360.
         let snapped_coords =
             spherical_coords.apply_into(|e| ((e.to_degrees().round() % 360.0) + 360.0) % 360.0);
@@ -237,11 +237,11 @@ impl StructurePvsField {
         snapped_coords
     }
 
-    fn spherical_to_index(&self, spherical_coords: Vec2) -> usize {
+    pub fn spherical_to_index(&self, spherical_coords: Vec2) -> usize {
         self.snapped_to_index(self.spherical_to_snapped(spherical_coords))
     }
 
-    fn snapped_to_spherical(&self, snapped_coords: TVec2<u32>) -> Vec2 {
+    pub fn snapped_to_spherical(&self, snapped_coords: TVec2<u32>) -> Vec2 {
         // Conver to floating point radians.
         let spherical_coords = vec2(
             (snapped_coords.x as f32).to_radians(),
@@ -251,7 +251,7 @@ impl StructurePvsField {
         spherical_coords
     }
 
-    fn snapped_to_index(&self, snapped_coords: TVec2<u32>) -> usize {
+    pub fn snapped_to_index(&self, snapped_coords: TVec2<u32>) -> usize {
         debug_assert!(snapped_coords.x < 360);
         debug_assert!(snapped_coords.y < 360);
         debug_assert!(snapped_coords.x % self.step == 0);
@@ -262,14 +262,14 @@ impl StructurePvsField {
         ((snapped_coords.x / self.step) * steps + (snapped_coords.y / self.step)) as usize
     }
 
-    fn index_to_snapped(&self, index: usize) -> TVec2<u32> {
+    pub fn index_to_snapped(&self, index: usize) -> TVec2<u32> {
         let index = index as u32;
         let steps = 360 / self.step;
 
         vec2((index / steps) * self.step, (index % steps) * self.step)
     }
 
-    fn index_to_spherical(&self, index: usize) -> Vec2 {
+    pub fn index_to_spherical(&self, index: usize) -> Vec2 {
         self.snapped_to_spherical(self.index_to_snapped(index))
     }
 
@@ -314,6 +314,7 @@ impl StructurePvsField {
                 }),
             });
 
+            rpass.push_debug_group("Draw depth buffer");
             rpass.set_pipeline(&self.module.pipeline.pipeline);
             rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
@@ -326,6 +327,7 @@ impl StructurePvsField {
                     0..self.structure.transforms()[molecule_id].1 as u32,
                 );
             }
+            rpass.pop_debug_group();
         }
 
         // Draw a second time without writing to a depth buffer but writing visibility
@@ -342,6 +344,7 @@ impl StructurePvsField {
                 }),
             });
 
+            rpass.push_debug_group("Draw write fragment depth buffer");
             rpass.set_pipeline(&self.module.pipeline_write.pipeline);
             rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
@@ -350,11 +353,14 @@ impl StructurePvsField {
                 rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
 
                 rpass.draw(
-                    self.structure.molecules()[molecule_id].lods()[0].1.start
-                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
+                    self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
+                    ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
+                    // self.structure.molecules()[molecule_id].lods()[0].1.start
+                    //     ..self.structure.molecules()[molecule_id].lods()[0].1.end,
                     0..self.structure.transforms()[molecule_id].1 as u32,
                 );
             }
+            rpass.pop_debug_group();
         }
 
         // Download the visibility data from the device buffer to the staging one
@@ -439,7 +445,10 @@ impl StructurePvsField {
         self.get(index)
     }
 
-    fn reduce(&mut self, index: usize) {
+    pub fn reduce(&mut self, index: usize) {
+        use std::time::{Instant, Duration};
+        // let start = Instant::now();
+ 
         let pvs = self.sets[index].as_mut().unwrap();
 
         let mut gaps = vec![Vec::new(); pvs.visible.len()];
@@ -462,6 +471,7 @@ impl StructurePvsField {
                 }
             }
 
+            // let start_sort = Instant::now();
             // Sort the gaps by their length in decreasing order
             gaps[molecule_index].sort_by(|a, b| {
                 let a_distance = a.1 - a.0;
@@ -469,6 +479,7 @@ impl StructurePvsField {
 
                 b_distance.cmp(&a_distance)
             });
+            // println!("Sort in {:?} ms", start_sort.elapsed().as_micros());
         }
 
         // Compute how many ranges we have in total across all molecule types
@@ -512,6 +523,8 @@ impl StructurePvsField {
             pvs.visible[i].sort_by(|a, b| a.0.cmp(&b.0));
             pvs.visible[i] = compress_ranges(pvs.visible[i].clone(), 0);
         }
+
+        // println!("Reduction in {:?} ms", start.elapsed().as_micros());
     }
 
     pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
@@ -519,6 +532,19 @@ impl StructurePvsField {
 
         if let Some(pvs) = self.sets[index].as_ref() {
             for molecule_id in 0..self.structure.molecules().len() {
+                // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
+                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE" 
+                // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
+                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
+                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
+                // && self.structure.molecules()[molecule_id].name() != "E"
+                // && self.structure.molecules()[molecule_id].name() != "M" {
+                //     continue;
+                // }
+                if self.structure.molecules()[molecule_id].name() == "S"  {
+                    continue;
+                }
+
                 let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
                 rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
                 rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
