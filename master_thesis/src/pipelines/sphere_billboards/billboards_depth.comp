@@ -1,0 +1,45 @@
+#version 460
+
+layout(push_constant) uniform PushConstants {
+    ivec2 image_size;
+    int positions_len;
+};
+
+layout(set = 0, binding = 0, std140) uniform CameraMatrices {
+  mat4 projection;
+  mat4 view;
+  mat4 projection_view;
+  vec4 position;
+};
+
+layout(set = 1, binding = 0, std430) buffer Positions {
+  vec4 positions[];
+};
+
+layout(set = 1, binding = 1, std430) buffer ModelMatrices {
+  mat4 model_matrices[];
+};
+
+layout (set = 2, binding = 0, std430) buffer framebuffer_data {
+	int framebuffer[];
+};
+
+void main(void) {
+  const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
+  const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
+
+  const int model_index = int(gl_GlobalInvocationID.x) / positions_len;
+  const int atom_index = int(gl_GlobalInvocationID.x) % positions_len;
+
+  const mat4 model_matrix = model_matrices[model_index];
+  const vec4 world_position = model_matrix * vec4(positions[atom_index].xyz, 1.0);
+
+  vec4 position = projection_view * world_position;
+  position /= position.w;
+
+  const vec2 image_position = (position.xy * 0.5 + 0.5) * image_size;
+  const ivec2 pixel_coords = ivec2(image_position);
+  const int pixel_id = pixel_coords.x + pixel_coords.y * image_size.x;
+
+  atomicMin(framebuffer[pixel_id], int(position.z * 2147483648.0));
+}

@@ -1,0 +1,30 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform PushConstants {
+    ivec2 image_size;
+    int positions_len;
+};
+
+layout (set = 0, binding = 0, std430) buffer framebuffer_data {
+	int framebuffer[];
+};
+
+layout(set = 0, binding = 1, r32f) uniform image2D output_depth;
+
+void main(){
+	uvec2 id = gl_LocalInvocationID.xy;
+	id.x += gl_WorkGroupSize.x * gl_WorkGroupID.x;
+	id.y += gl_WorkGroupSize.y * gl_WorkGroupID.y;
+
+	const ivec2 output_coords = ivec2(id);
+	ivec2 source_coords = ivec2(id);
+	const int pixel_id = source_coords.x + source_coords.y * image_size.x;
+
+	imageStore(
+		output_depth, output_coords, 
+		vec4(
+			float(framebuffer[pixel_id]) / 2147483648
+		)
+	);
+}

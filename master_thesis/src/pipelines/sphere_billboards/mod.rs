@@ -53,6 +53,7 @@ impl SphereBillboardsPipeline {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[
@@ -131,6 +132,7 @@ impl SphereBillboardsPipeline {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[
@@ -233,6 +235,7 @@ impl SphereBillboardsDepthPipeline {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[],

@@ -301,34 +301,34 @@ impl StructurePvsField {
         }
 
         // Draw the depth buffer
-        {
-            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[],
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.module.depth,
-                    depth_ops: Some(Operations {
-                        load: LoadOp::Clear(0.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }),
-            });
+        // {
+        //     let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+        //         color_attachments: &[],
+        //         depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+        //             attachment: &self.module.depth,
+        //             depth_ops: Some(Operations {
+        //                 load: LoadOp::Clear(0.0),
+        //                 store: true,
+        //             }),
+        //             stencil_ops: None,
+        //         }),
+        //     });
 
-            rpass.push_debug_group("Draw depth buffer");
-            rpass.set_pipeline(&self.module.pipeline.pipeline);
-            rpass.set_bind_group(0, self.camera.bind_group(), &[]);
+        //     rpass.push_debug_group("Draw depth buffer");
+        //     rpass.set_pipeline(&self.module.pipeline.pipeline);
+        //     rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
-            for molecule_id in 0..self.structure.molecules().len() {
-                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+        //     for molecule_id in 0..self.structure.molecules().len() {
+        //         rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
 
-                rpass.draw(
-                    self.structure.molecules()[molecule_id].lods()[0].1.start
-                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
-                    0..self.structure.transforms()[molecule_id].1 as u32,
-                );
-            }
-            rpass.pop_debug_group();
-        }
+        //         rpass.draw(
+        //             self.structure.molecules()[molecule_id].lods()[0].1.start
+        //                 ..self.structure.molecules()[molecule_id].lods()[0].1.end,
+        //             0..self.structure.transforms()[molecule_id].1 as u32,
+        //         );
+        //     }
+        //     rpass.pop_debug_group();
+        // }
 
         // Draw a second time without writing to a depth buffer but writing visibility
         {
@@ -355,8 +355,6 @@ impl StructurePvsField {
                 rpass.draw(
                     self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
                     ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
-                    // self.structure.molecules()[molecule_id].lods()[0].1.start
-                    //     ..self.structure.molecules()[molecule_id].lods()[0].1.end,
                     0..self.structure.transforms()[molecule_id].1 as u32,
                 );
             }
@@ -388,9 +386,7 @@ impl StructurePvsField {
                     .chunks_exact(4)
                     .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
                     .collect();
-
                 drop(data);
-                // self.visible_staging[molecule_id].unmap();
 
                 result
             } else {

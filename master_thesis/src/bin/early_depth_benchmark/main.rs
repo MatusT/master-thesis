@@ -134,6 +134,7 @@ impl framework::ApplicationStructure for Application {
                     depth_bias_slope_scale: 0.0,
                     depth_bias_clamp: 0.0,
                     clamp_depth: false,
+                    polygon_mode: PolygonMode::Fill,
                 }),
                 primitive_topology: PrimitiveTopology::TriangleList,
                 color_states: &[ColorStateDescriptor {

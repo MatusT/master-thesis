@@ -102,6 +102,7 @@ async fn wgpu_setup<E: ApplicationStructure>(
     window: winit::window::Window,
     event_loop_proxy: winit::event_loop::EventLoopProxy<WgpuSetup>,
 ) {
+    env_logger::init();
     log::info!("Initializing the surface...");
 
     let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);

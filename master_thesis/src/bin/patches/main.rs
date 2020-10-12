@@ -251,14 +251,12 @@ impl framework::ApplicationStructure for Application {
                     depth: 1,
                 },
                 mip_level_count: 1,
-                sample_count,
+                sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8Unorm,
-                usage: TextureUsage::OUTPUT_ATTACHMENT
-                    | TextureUsage::SAMPLED
-                    | TextureUsage::STORAGE,
-            })
-            .create_view(&wgpu::TextureViewDescriptor::default());
+                usage: TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
+            });
+        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let pvs_module = Rc::new(StructurePvsModule::new(
             &device,
@@ -342,6 +340,8 @@ impl framework::ApplicationStructure for Application {
                 .create_view(&TextureViewDescriptor::default()),
         ];
 
+        println!("SSAO finals done");
+
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
 
@@ -357,14 +357,14 @@ impl framework::ApplicationStructure for Application {
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: ShaderStage::all(),
+                        visibility: ShaderStage::FRAGMENT,
                         ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
                             multisampled: false,
+                            component_type: TextureComponentType::Float,
+                            dimension: TextureViewDimension::D2,
                         },
                         count: None,
-                    },
+                    },                    
                     BindGroupLayoutEntry {
                         binding: 2,
                         visibility: ShaderStage::all(),
@@ -412,6 +412,7 @@ impl framework::ApplicationStructure for Application {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[ColorStateDescriptor {
@@ -430,6 +431,8 @@ impl framework::ApplicationStructure for Application {
             alpha_to_coverage_enabled: false,
         });
 
+        println!("Output pipeline done");
+
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
@@ -442,6 +445,8 @@ impl framework::ApplicationStructure for Application {
             ..Default::default()
         });
 
+        println!("Linear clamp sampler pipeline done");
+
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &output_bind_group_layout,
@@ -452,7 +457,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&output_texture),
+                    resource: BindingResource::TextureView(&output_texture_view),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -464,6 +469,8 @@ impl framework::ApplicationStructure for Application {
                 },
             ],
         });
+
+        println!("Output bind group done");
 
         let state = ApplicationState {
             draw_lod: false,
@@ -499,6 +506,8 @@ impl framework::ApplicationStructure for Application {
 
         let start_time = Instant::now();
 
+        println!("Initialization is done.");
+
         Self {
             width,
             height,
@@ -509,7 +518,7 @@ impl framework::ApplicationStructure for Application {
             depth_texture,
             multisampled_texture,
             normals_texture,
-            output_texture,
+            output_texture: output_texture_view,
 
             camera,
             camera_bind_group_layout,
@@ -678,7 +687,6 @@ impl framework::ApplicationStructure for Application {
     ) {
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
-        let time: u32 = unsafe { std::mem::transmute(time) };
 
         // Rotate the structure
         // for r in self.covid_rotations.iter_mut() {
@@ -760,7 +768,7 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
-            rpass.set_push_constants(ShaderStage::VERTEX, 0, &[time]);
+            rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
             let mut culled = 0;
@@ -811,15 +819,6 @@ impl framework::ApplicationStructure for Application {
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        // let mut ssao_settings = ssao::Settings::default();
-        // ssao_settings.radius = self.covid.bounding_radius() * 8.0;
-        // ssao_settings.projection = self.camera.ubo().projection;
-        // ssao_settings.horizonAngleThreshold = 0.2;
-        // ssao_settings.blurPassCount = 8;
-        // ssao_settings.sharpness = 1.0;
-        // ssao_settings.detailShadowStrength = 2.0;
-        // ssao_settings.shadowMultiplier = 1.0;
-
         self.ssao_module.compute(
             device,
             queue,
@@ -832,11 +831,6 @@ impl framework::ApplicationStructure for Application {
 
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-
-        // ssao_settings.radius = 16.0;
-        // ssao_settings.horizonAngleThreshold = 0.00;
-        // ssao_settings.blurPassCount = 8;
-        // ssao_settings.sharpness = 1.0;
 
         self.ssao_module.compute(
             device,

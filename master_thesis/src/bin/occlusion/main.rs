@@ -424,6 +424,7 @@ impl framework::ApplicationStructure for Application {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[ColorStateDescriptor {
@@ -684,7 +685,6 @@ impl framework::ApplicationStructure for Application {
 
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
-        let time: u32 = unsafe { std::mem::transmute(time) };
 
         // Rotate the structure
         for r in self.covid_rotations.iter_mut() {
@@ -727,10 +727,10 @@ impl framework::ApplicationStructure for Application {
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
-            // let start = Instant::now();
+            let start = Instant::now();
             if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction)) {
                 computed_count += 1;
-                // println!("Compute in {:?} ms", start.elapsed().as_micros());
+                println!("Compute in {:?} ms", start.elapsed().as_micros());
             }            
         }
 
@@ -758,7 +758,7 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
-            rpass.set_push_constants(ShaderStage::VERTEX, 0, &[time]);
+            rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
             let mut culled = 0;
