@@ -353,10 +353,10 @@ impl StructurePvsField {
                 rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
 
                 rpass.draw(
-                    self.structure.molecules()[molecule_id].lods()[0].1.start
-                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
-                    // self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
-                    // ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
+                    // self.structure.molecules()[molecule_id].lods()[0].1.start
+                    //     ..self.structure.molecules()[molecule_id].lods()[0].1.end,
+                    self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
+                    ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
                     0..self.structure.transforms()[molecule_id].1 as u32,
                 );
             }
