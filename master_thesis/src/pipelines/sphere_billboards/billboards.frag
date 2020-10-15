@@ -48,11 +48,10 @@ void main()
 	out_normal = vec4(normalize(position_vs.xyz - center_vs.xyz), 0.0);
 	#endif
 
-	// z = min(z / scale + 0.33, 1.0);
-	#ifdef DEBUG
-	out_color = vec4(in_color, 1.0);
-	#else
 	z = remap(z, 0.0, scale, 0.5, 1.0);
+	#ifdef DEBUG
+	out_color = vec4(z * in_color, 1.0);
+	#else	
 	out_color = vec4(z * color.xyz, 1.0);
 	#endif
 }

@@ -211,6 +211,7 @@ fn start<E: ApplicationStructure>(
     let mut application: Option<Application<E>> = None;
 
     log::info!("Entering render loop...");
+    let mut start = Instant::now();
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
             ControlFlow::Exit
@@ -307,6 +308,11 @@ fn start<E: ApplicationStructure>(
                     };
 
                     example.render(&frame.output, &device, &queue, &spawner);
+
+                    drop(frame);
+
+                    println!("Frame time: {}", start.elapsed().as_millis());
+                    start = Instant::now();
                 }
                 _ => {}
             },

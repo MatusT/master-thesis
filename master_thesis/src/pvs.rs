@@ -201,7 +201,7 @@ pub struct StructurePvsField {
     camera: RotationCamera,
 
     ///
-    sets: Vec<Option<StructurePvs>>,
+    pub sets: Vec<Option<StructurePvs>>,
 
     /// Step of distribution of discretized views. In degrees.
     step: u32,
@@ -301,34 +301,34 @@ impl StructurePvsField {
         }
 
         // Draw the depth buffer
-        // {
-        //     let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-        //         color_attachments: &[],
-        //         depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
-        //             attachment: &self.module.depth,
-        //             depth_ops: Some(Operations {
-        //                 load: LoadOp::Clear(0.0),
-        //                 store: true,
-        //             }),
-        //             stencil_ops: None,
-        //         }),
-        //     });
+        {
+            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[],
+                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.module.depth,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
 
-        //     rpass.push_debug_group("Draw depth buffer");
-        //     rpass.set_pipeline(&self.module.pipeline.pipeline);
-        //     rpass.set_bind_group(0, self.camera.bind_group(), &[]);
+            rpass.push_debug_group("Draw depth buffer");
+            rpass.set_pipeline(&self.module.pipeline.pipeline);
+            rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
-        //     for molecule_id in 0..self.structure.molecules().len() {
-        //         rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+            for molecule_id in 0..self.structure.molecules().len() {
+                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
 
-        //         rpass.draw(
-        //             self.structure.molecules()[molecule_id].lods()[0].1.start
-        //                 ..self.structure.molecules()[molecule_id].lods()[0].1.end,
-        //             0..self.structure.transforms()[molecule_id].1 as u32,
-        //         );
-        //     }
-        //     rpass.pop_debug_group();
-        // }
+                rpass.draw(
+                    self.structure.molecules()[molecule_id].lods()[0].1.start
+                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
+                    0..self.structure.transforms()[molecule_id].1 as u32,
+                );
+            }
+            rpass.pop_debug_group();
+        }
 
         // Draw a second time without writing to a depth buffer but writing visibility
         {
@@ -353,8 +353,10 @@ impl StructurePvsField {
                 rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
 
                 rpass.draw(
-                    self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
-                    ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
+                    self.structure.molecules()[molecule_id].lods()[0].1.start
+                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
+                    // self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
+                    // ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
                     0..self.structure.transforms()[molecule_id].1 as u32,
                 );
             }
@@ -442,9 +444,9 @@ impl StructurePvsField {
     }
 
     pub fn reduce(&mut self, index: usize) {
-        use std::time::{Instant, Duration};
+        use std::time::{Duration, Instant};
         // let start = Instant::now();
- 
+
         let pvs = self.sets[index].as_mut().unwrap();
 
         let mut gaps = vec![Vec::new(); pvs.visible.len()];
@@ -529,7 +531,7 @@ impl StructurePvsField {
         if let Some(pvs) = self.sets[index].as_ref() {
             for molecule_id in 0..self.structure.molecules().len() {
                 // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
-                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE" 
+                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
                 // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
                 // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
                 // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
@@ -537,9 +539,9 @@ impl StructurePvsField {
                 // && self.structure.molecules()[molecule_id].name() != "M" {
                 //     continue;
                 // }
-                if self.structure.molecules()[molecule_id].name() == "S"  {
-                    continue;
-                }
+                // if self.structure.molecules()[molecule_id].name() == "S"  {
+                //     continue;
+                // }
 
                 let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
                 rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
@@ -562,6 +564,19 @@ impl StructurePvsField {
 
         if let Some(pvs) = self.sets[index].as_ref() {
             for molecule_id in 0..self.structure.molecules().len() {
+                // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
+                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
+                // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
+                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
+                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
+                // && self.structure.molecules()[molecule_id].name() != "E"
+                // && self.structure.molecules()[molecule_id].name() != "M" {
+                //     continue;
+                // }
+                // if self.structure.molecules()[molecule_id].name() == "S"  {
+                //     continue;
+                // }
+
                 let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
                 rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
                 rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
@@ -591,7 +606,7 @@ impl StructurePvsField {
 #[derive(Clone)]
 pub struct StructurePvs {
     /// Ranges
-    visible: Vec<Vec<(u32, u32)>>,
+    pub visible: Vec<Vec<(u32, u32)>>,
 }
 
 pub fn list_to_ranges(list: &[u32]) -> Vec<(u32, u32)> {

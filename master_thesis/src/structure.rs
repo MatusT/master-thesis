@@ -243,12 +243,17 @@ impl Structure {
 
     pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>) {
         for molecule_id in 0..self.molecules().len() {
-            if self.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE" 
-            && self.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
-            && self.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
-            && self.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2" {
-                continue;
-            }
+            // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
+            // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
+            // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
+            // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
+            // && self.structure.molecules()[molecule_id].name() != "E"
+            // && self.structure.molecules()[molecule_id].name() != "M" {
+            //     continue;
+            // }
+            // if self.molecules()[molecule_id].name() == "S"  {
+            //     continue;
+            // }
 
             rpass.set_bind_group(1, &self.bind_groups()[molecule_id], &[]);
 
@@ -263,6 +268,19 @@ impl Structure {
 
     pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, distance: f32) {
         for molecule_id in 0..self.molecules().len() {
+            // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
+            // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
+            // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
+            // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
+            // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
+            // && self.structure.molecules()[molecule_id].name() != "E"
+            // && self.structure.molecules()[molecule_id].name() != "M" {
+            //     continue;
+            // }
+            // if self.molecules()[molecule_id].name() == "S"  {
+            //     continue;
+            // }
+
             rpass.set_bind_group(1, &self.bind_groups()[molecule_id], &[]);
 
             // Select Its LOD

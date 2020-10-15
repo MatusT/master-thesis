@@ -159,7 +159,7 @@ impl framework::ApplicationStructure for Application {
                 // "S" => vec3(0.0, 0.93, 1.0),
                 "E" => vec3(1.0, 1.0, 1.0),
                 "M" => vec3(1.0, 1.0, 1.0),
-                "NTD" =>vec3(1.0, 1.0, 1.0),
+                "NTD" => vec3(1.0, 1.0, 1.0),
                 "CTD" => vec3(1.0, 1.0, 1.0),
                 "FLUID_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
                 "FLUID_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
@@ -489,21 +489,21 @@ impl framework::ApplicationStructure for Application {
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
-                    horizonAngleThreshold: 0.2,                    
+                    horizonAngleThreshold: 0.2,
                     sharpness: 1.0,
-                    detailShadowStrength: 5.0,                    
+                    detailShadowStrength: 5.0,
                     blurPassCount: 8,
-                    .. Default::default()
+                    ..Default::default()
                 },
                 ssao::Settings {
                     radius: 16.0,
                     shadowMultiplier: 2.0,
                     shadowPower: 1.5,
-                    horizonAngleThreshold: 0.0,                    
+                    horizonAngleThreshold: 0.0,
                     sharpness: 0.0,
-                    detailShadowStrength: 3.0,                    
+                    detailShadowStrength: 3.0,
                     blurPassCount: 8,
-                    .. Default::default()
+                    ..Default::default()
                 },
             ],
             ssao_modifying: 0,
@@ -680,9 +680,7 @@ impl framework::ApplicationStructure for Application {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         spawner: &impl futures::task::LocalSpawn,
-    ) {       
-        // println!("Last render time in {:?} ms", start.elapsed().as_micros());
-
+    ) {
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
@@ -716,6 +714,7 @@ impl framework::ApplicationStructure for Application {
             cast_slice(&covid_transforms_f32),
         );
 
+        //================== DATA UPLOAD
         let mut computed_count = 0;
         for i in 0..self.covid_rotations.len() {
             if computed_count > 10 {
@@ -727,11 +726,11 @@ impl framework::ApplicationStructure for Application {
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
-            let start = Instant::now();
-            if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction)) {
+            if futures::executor::block_on(
+                self.covid_pvs.compute_from_eye(device, queue, direction),
+            ) {
                 computed_count += 1;
-                println!("Compute in {:?} ms", start.elapsed().as_micros());
-            }            
+            }
         }
 
         //================== RENDER MOLECULES
@@ -761,7 +760,6 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            let mut culled = 0;
             for i in 0..self.covid_translations.len() {
                 let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
                 let position = self.covid_translations[i].column(3).xyz();
@@ -772,7 +770,6 @@ impl framework::ApplicationStructure for Application {
                     position.z,
                     self.covid.bounding_radius(),
                 )) {
-                    culled += 1;
                     continue;
                 }
 
@@ -802,21 +799,10 @@ impl framework::ApplicationStructure for Application {
                     }
                 }
             }
-
-            // println!("Culled {}", culled);
         }
 
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-
-        // let mut ssao_settings = ssao::Settings::default();
-        // ssao_settings.radius = self.covid.bounding_radius() * 8.0;
-        // ssao_settings.projection = self.camera.ubo().projection;
-        // ssao_settings.horizonAngleThreshold = 0.2;
-        // ssao_settings.blurPassCount = 8;
-        // ssao_settings.sharpness = 1.0;
-        // ssao_settings.detailShadowStrength = 2.0;
-        // ssao_settings.shadowMultiplier = 1.0;
 
         self.ssao_module.compute(
             device,
@@ -830,11 +816,6 @@ impl framework::ApplicationStructure for Application {
 
         queue.submit(Some(encoder.finish()));
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-
-        // ssao_settings.radius = 16.0;
-        // ssao_settings.horizonAngleThreshold = 0.00;
-        // ssao_settings.blurPassCount = 8;
-        // ssao_settings.sharpness = 1.0;
 
         self.ssao_module.compute(
             device,

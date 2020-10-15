@@ -16,5 +16,5 @@ void main() {
 
     const float ao = (ao1 + ao2) / 2.0;
     
-    output_color = vec4(ao1 * color, 1.0);
+    output_color = vec4(ao * color, 1.0);
 }

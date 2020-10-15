@@ -57,7 +57,7 @@ pub struct Application {
 
     output_pipeline: RenderPipeline,
     output_bind_group: BindGroup,
-    
+
     reduce: u32,
     recompute_pvs: bool,
 }
@@ -163,7 +163,7 @@ impl framework::ApplicationStructure for Application {
                 // "S" => vec3(0.0, 0.93, 1.0),
                 "E" => vec3(1.0, 1.0, 1.0),
                 "M" => vec3(1.0, 1.0, 1.0),
-                "NTD" =>vec3(1.0, 1.0, 1.0),
+                "NTD" => vec3(1.0, 1.0, 1.0),
                 "CTD" => vec3(1.0, 1.0, 1.0),
                 "FLUID_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
                 "FLUID_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
@@ -183,7 +183,7 @@ impl framework::ApplicationStructure for Application {
         let covid = Rc::new(covid);
 
         // Pipelines
-        let billboards_pipeline = SphereBillboardsPipeline::new_debug(
+        let billboards_pipeline = SphereBillboardsPipeline::new(
             &device,
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
@@ -242,29 +242,29 @@ impl framework::ApplicationStructure for Application {
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let output_texture = device
-            .create_texture(&TextureDescriptor {
-                label: None,
-                size: Extent3d {
-                    width,
-                    height,
-                    depth: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8Unorm,
-                usage: TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
-            });
-        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_texture = device.create_texture(&TextureDescriptor {
+            label: None,
+            size: Extent3d {
+                width,
+                height,
+                depth: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
+        });
+        let output_texture_view =
+            output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let pvs_module = Rc::new(StructurePvsModule::new(
             &device,
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 2, 1024);
+        let mut covid_pvs =
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 1024);
 
         let covid_rotations = vec![rotation(0.0, &vec3(0.0, 1.0, 0.0))];
         let covid_translations = vec![translation(&vec3(0.0, 0.0, 0.0))];
@@ -364,7 +364,7 @@ impl framework::ApplicationStructure for Application {
                             dimension: TextureViewDimension::D2,
                         },
                         count: None,
-                    },                    
+                    },
                     BindGroupLayoutEntry {
                         binding: 2,
                         visibility: ShaderStage::all(),
@@ -483,21 +483,21 @@ impl framework::ApplicationStructure for Application {
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
-                    horizonAngleThreshold: 0.2,                    
+                    horizonAngleThreshold: 0.2,
                     sharpness: 1.0,
-                    detailShadowStrength: 5.0,                    
+                    detailShadowStrength: 5.0,
                     blurPassCount: 8,
-                    .. Default::default()
+                    ..Default::default()
                 },
                 ssao::Settings {
                     radius: 16.0,
                     shadowMultiplier: 2.0,
                     shadowPower: 1.5,
-                    horizonAngleThreshold: 0.0,                    
+                    horizonAngleThreshold: 0.0,
                     sharpness: 0.0,
-                    detailShadowStrength: 3.0,                    
+                    detailShadowStrength: 3.0,
                     blurPassCount: 8,
-                    .. Default::default()
+                    ..Default::default()
                 },
             ],
             ssao_modifying: 0,
@@ -605,7 +605,35 @@ impl framework::ApplicationStructure for Application {
                                 self.state.animating = !self.state.animating;
                             }
                             VirtualKeyCode::R => {
-                                self.reduce -= 128;
+                                let rotation = self.covid_rotations[0].fixed_slice::<U3, U3>(0, 0);
+                                let position = self.covid_translations[0].column(3).xyz();
+                                let direction = rotation.try_inverse().unwrap()
+                                    * normalize(&(self.camera.eye() - position));
+
+                                // Calculate number of culled molecules
+                                let mut total_molecules = 0u32;
+                                let mut visible_molecules = 0u32;
+                                if let Some(set) = self.covid_pvs.get_from_eye(direction) {
+                                    for (molecule_index, ranges) in set.visible.iter().enumerate() {
+                                        total_molecules +=
+                                            self.covid.transforms()[molecule_index].1 as u32;
+                                        for range in ranges {
+                                            visible_molecules += (range.1 - range.0) as u32;
+                                        }
+                                    }
+                                }
+                                // println!("{}/{} = {}", visible_molecules, total_molecules, (visible_molecules as f32 / total_molecules as f32) * 100.0);
+                                println!(
+                                    "({}, {})",
+                                    self.reduce,
+                                    (visible_molecules as f32 / total_molecules as f32) * 100.0
+                                );
+
+                                if self.reduce > 128 {
+                                    self.reduce -= 128;
+                                } else {
+                                    self.reduce -= 16;
+                                }
                                 self.recompute_pvs = true;
                             }
                             _ => {}
@@ -694,15 +722,18 @@ impl framework::ApplicationStructure for Application {
         // }
 
         if self.recompute_pvs {
-            self.covid_pvs = self.pvs_module.pvs_field(&device, &self.camera_bind_group_layout, self.covid.clone(), 2, self.reduce as usize);
+            self.covid_pvs = self.pvs_module.pvs_field(
+                &device,
+                &self.camera_bind_group_layout,
+                self.covid.clone(),
+                5,
+                self.reduce as usize,
+            );
             self.recompute_pvs = false;
             println!("{}", self.reduce);
         }
 
         //================== DATA UPLOAD
-        if self.state.animating {
-            self.camera.set_distance(self.camera.distance() - 30.0);
-        }
         self.camera.update_gpu(queue);
 
         let culler = FrustrumCuller::from_matrix(self.camera.ubo().projection_view);
@@ -735,11 +766,15 @@ impl framework::ApplicationStructure for Application {
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
-            if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, direction)) {
+            if futures::executor::block_on(
+                self.covid_pvs.compute_from_eye(device, queue, direction),
+            ) {
                 computed_count += 1;
             }
 
-            if futures::executor::block_on(self.covid_pvs.compute_from_eye(device, queue, -direction)) {
+            if futures::executor::block_on(
+                self.covid_pvs.compute_from_eye(device, queue, -direction),
+            ) {
                 computed_count += 1;
             }
         }
@@ -749,14 +784,24 @@ impl framework::ApplicationStructure for Application {
 
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &self.output_texture,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::BLACK),
-                        store: true,
+                color_attachments: &[
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &self.output_texture,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
                     },
-                }],
+                    // RenderPassColorAttachmentDescriptor {
+                    //     attachment: &self.normals_texture,
+                    //     resolve_target: None,
+                    //     ops: Operations {
+                    //         load: LoadOp::Clear(Color::BLACK),
+                    //         store: true,
+                    //     },
+                    // }
+                ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {
@@ -788,6 +833,7 @@ impl framework::ApplicationStructure for Application {
 
                 let direction = self.camera.eye() - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+                // let direction_norm_rot2 = direction_norm_rot2;
 
                 rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
                 if self.state.draw_lod {
@@ -798,7 +844,7 @@ impl framework::ApplicationStructure for Application {
                     } else {
                         self.covid_pvs.draw_lod(
                             &mut rpass,
-                            direction_norm_rot,
+                            -direction_norm_rot,
                             direction.magnitude(),
                         );
                     }
