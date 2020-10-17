@@ -479,7 +479,7 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: covid.bounding_radius() * 8.0,
+                    radius: 2.0 * covid.bounding_radius(),
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -491,6 +491,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 ssao::Settings {
                     radius: 16.0,
+                    projection: camera.ubo().projection,
                     shadowMultiplier: 2.0,
                     shadowPower: 1.5,
                     horizonAngleThreshold: 0.0,
@@ -698,6 +699,15 @@ impl framework::ApplicationStructure for Application {
                     "*"
                 },
                 self.state.ssao_settings[self.state.ssao_modifying].detailShadowStrength,
+            );
+            println!(
+                "[{}] Radius: {}",
+                if self.state.ssao_parameter != 5 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].radius,
             );
         }
     }

@@ -1,11 +1,12 @@
 use nalgebra_glm::{distance, distance2, vec4, zero, Vec3, Vec4};
 use rand::prelude::*;
+use rayon::prelude::*;
 
 pub fn reduce(points: &[Vec4], centroids_num: usize) -> Vec<Vec4> {
     let mut rng = rand::thread_rng();
 
     let mut centroids: Vec<Vec4> = Vec::new();
-    let mut memberships: Vec<i32> = vec![0; points.len()];
+    let mut memberships: Vec<i32> = vec![0; points.len()];    
 
     // Init
     let centroid_step = (points.len() as f32 / centroids_num as f32).ceil() as usize;
@@ -18,33 +19,28 @@ pub fn reduce(points: &[Vec4], centroids_num: usize) -> Vec<Vec4> {
     }
 
     // Iterations
-    for _ in 0..10 {
+    for _ in 0..5 {
         // Find centroids
-        for (point_index, point) in points.iter().enumerate() {
-            let mut min_dist = std::f32::INFINITY;
-            let mut closest_centroid = -1;
-            for (centroid_index, centroid) in centroids.iter().enumerate() {
-                let dist = distance2(&point, &centroid);
+        points.par_iter().zip_eq(memberships.par_iter_mut()).for_each(|(point, membership)| {
+            let (closest_centroid, _) = centroids.iter().enumerate().fold((0, std::f32::INFINITY), |acc, (i, c)| { 
+                let d = distance2(&point, &c);
+                if d < acc.1 { (i, d) } 
+                else { acc }         
+            });
 
-                if dist < min_dist {
-                    min_dist = dist;
-                    closest_centroid = centroid_index as i32;
-                }
-            }
-
-            memberships[point_index] = closest_centroid;
-        }
+            *membership = closest_centroid as i32;
+        });
 
         // Update centroids
-        for id in 0..centroids.len() {
+        centroids.par_iter_mut().enumerate().for_each(|(centroid_index, centroid)| {
             let mut member_count = 0;
             let mut bounding_radius = 0.0f32;
 
             let mut new_centroid: Vec3 = zero();
-            let old_centroid: Vec4 = centroids[id];
+            let old_centroid = centroid.clone();
 
             for i in 0..points.len() {
-                let add_centroid: bool = memberships[i] == id as i32;
+                let add_centroid: bool = memberships[i] == centroid_index as i32;
                 let inc_point: Vec4 = if add_centroid { points[i] } else { zero() };
 
                 new_centroid += inc_point.xyz();
@@ -61,8 +57,9 @@ pub fn reduce(points: &[Vec4], centroids_num: usize) -> Vec<Vec4> {
             }
 
             new_centroid = new_centroid * (1.0 / member_count as f32);
-            centroids[id] = vec4(new_centroid[0], new_centroid[1], new_centroid[2], bounding_radius);
-        }
+
+            *centroid = vec4(new_centroid[0], new_centroid[1], new_centroid[2], bounding_radius);
+        });
     }
 
     centroids.into_iter().filter(|v| v[3] > 0.0).collect()

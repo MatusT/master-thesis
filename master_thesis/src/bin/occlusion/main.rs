@@ -497,6 +497,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 ssao::Settings {
                     radius: 16.0,
+                    projection: camera.ubo().projection,
                     shadowMultiplier: 2.0,
                     shadowPower: 1.5,
                     horizonAngleThreshold: 0.0,
@@ -598,7 +599,7 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::Down => {
                                 self.state.ssao_parameter +=
-                                    if self.state.ssao_parameter == 5 { 0 } else { 1 };
+                                    if self.state.ssao_parameter == 6 { 0 } else { 1 };
                                 changed = true;
                             }
                             VirtualKeyCode::A => {
@@ -666,6 +667,15 @@ impl framework::ApplicationStructure for Application {
                     "*"
                 },
                 self.state.ssao_settings[self.state.ssao_modifying].detailShadowStrength,
+            );
+            println!(
+                "[{}] Detail shadow strength: {}",
+                if self.state.ssao_parameter != 5 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].radius,
             );
         }
     }

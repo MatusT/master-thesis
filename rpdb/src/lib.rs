@@ -1,9 +1,13 @@
+pub mod lod;
 pub mod molecule;
 pub mod structure;
 
-use nalgebra_glm::{max2, min2, vec3, Vec3, Vec4, vec4};
+use lib3dmol::{
+    parser::read_pdb,
+    structures::{atom::AtomType, GetAtom},
+};
+use nalgebra_glm::{max2, min2, vec3, vec4, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
-use lib3dmol::{parser::read_pdb, structures::{atom::AtomType, GetAtom}};
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct BoundingBox {
     pub min: Vec3,
@@ -95,7 +99,8 @@ impl FromRon for molecule::Molecule {
 
 impl ToRon for molecule::Molecule {
     fn to_ron<P: AsRef<std::path::Path>>(&self, path: P) {
-        let data = ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::new()).expect("Could not serialize the molecule.");
+        let data = ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::new())
+            .expect("Could not serialize the molecule.");
         std::fs::write(&path, data).expect("Could not write the molecule.");
     }
 }
@@ -108,7 +113,7 @@ impl FromPdb for molecule::Molecule {
     fn from_pdb<P: AsRef<std::path::Path>>(path: P) -> molecule::Molecule {
         let molecule_structure = read_pdb(path.as_ref().to_str().unwrap(), "");
 
-        let mut atoms = Vec::new();        
+        let mut atoms = Vec::new();
         for atom in molecule_structure.get_atom() {
             let radius = match atom.a_type {
                 AtomType::Carbon => 1.548,
@@ -121,7 +126,7 @@ impl FromPdb for molecule::Molecule {
             };
             atoms.push(vec4(atom.coord[0], atom.coord[1], atom.coord[2], radius));
         }
-    
+
         atoms = center_atoms(atoms);
 
         molecule::Molecule {

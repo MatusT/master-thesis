@@ -57,14 +57,15 @@ fn main() {
     let height = 1080.0;
     let aspect = width / height;
     let projection = infinite_perspective_rh_no(aspect, 0.785398163, 0.1);
-    let ratios = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1,
-                  0.09, 0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.02, 0.01,
-                  0.009, 0.008, 0.007, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001
+    let ratios = [0.9, 0.75, 0.5, 0.25, 0.1,
+                  0.075, 0.05, 0.025, 0.01,
+                  0.005, 0.001,
+                  0.0001, 0.00001
     ];
     let area_threshold = 32.0;
 
     // Current largest radius that is being projected
-    let mut radius = lods[0].max_radius();
+    let mut radius = lods.last().unwrap().max_radius();
     let mut z = radius * 2.0;
 
     // Iteratively zoom out
@@ -73,7 +74,7 @@ fn main() {
         z += 1.0;
 
         if current_ratio_index >= ratios.len() - 1 {
-            break;
+            break 'main;
         }
 
         let view = look_at(
@@ -91,16 +92,15 @@ fn main() {
         // Breakpoint at area limit
         // Currently 64 = 8x8 pixel area
         if area < area_threshold {
-            println!("{:?}", area);
+            // println!("{:?}", area);
             println!("Distance: {}", z);
 
             // Continue along the reduction ratios
             for reduction_ratio in current_ratio_index..ratios.len() {                
                 let mut new_centroids_num = (lods[0].atoms().len() as f32 * ratios[reduction_ratio]) as usize;
-                // println!("Current ratio: {}. New centroids: {}", ratios[reduction_ratio], new_centroids_num);
 
                 // End if It is not possible to reduce further
-                if new_centroids_num < 1 && lods.last().unwrap().atoms().len() == 1 {
+                if lods.last().unwrap().atoms().len() == 1 {
                     break 'main;
                 }
 
@@ -112,8 +112,7 @@ fn main() {
                     lods[0].atoms(),
                     new_centroids_num,
                 );
-
-                println!("Current ratio: {}. New centroids: {}. New means real len: {}", ratios[reduction_ratio], new_centroids_num, new_means.len());
+                
                 if new_means.len() == 0 {
                     continue;
                 }
@@ -121,7 +120,8 @@ fn main() {
                 let mut new_lod = MoleculeLod::new(new_means, 0.0);
 
                 let new_area = sphere_sreen_space_area(projection, vec2(width, height), position.xyz(), new_lod.max_radius());
-                println!("Possible candidate with {} means of {} area", new_lod.atoms().len(), new_lod.max_radius());
+                
+                println!("Current ratio: {}. New centroids: {}. New means real len: {}. New area: {}", ratios[reduction_ratio], new_centroids_num, new_lod.atoms().len(), new_area);
 
                 // If the new are is now above the area limit, save It and continue
                 if new_area > area_threshold {

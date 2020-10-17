@@ -197,6 +197,7 @@ impl Settings {
             2 => self.horizonAngleThreshold += 0.01,
             3 => self.sharpness += 0.1,
             4 => self.detailShadowStrength += 0.1,
+            5 => self.radius += 10.0,
             _ => {}
         };
     }
@@ -208,6 +209,7 @@ impl Settings {
             2 => self.horizonAngleThreshold -= 0.01,
             3 => self.sharpness -= 0.1,
             4 => self.detailShadowStrength -= 0.1,
+            5 => self.radius -= 10.0,
             _ => {}
         };
     }
@@ -821,8 +823,6 @@ impl SsaoModule {
             ));
         }
 
-        println!("{:?}", buffer_size_info);
-
         Self {
             width,
             height,
@@ -876,11 +876,14 @@ impl SsaoModule {
         constants.normals_to_viewspace = settings.normals_to_viewspace;
         let depthLinearizeMul = -settings.projection[(2, 3)];
         let mut depthLinearizeAdd = -settings.projection[(2, 2)];
-        if depthLinearizeMul * depthLinearizeAdd <= 0.0 {
+        if depthLinearizeMul * depthLinearizeAdd < 0.0 {
             depthLinearizeAdd = -depthLinearizeAdd;
         }
         constants.depth_unpack_consts[0] = depthLinearizeMul;
         constants.depth_unpack_consts[1] = depthLinearizeAdd;
+
+        // println!("{:?}", settings.projection);
+        // println!("{:?}", constants.depth_unpack_consts);
 
         let CameraTanHalfFOV = vec2(
             1.0 / settings.projection[(1, 1)],

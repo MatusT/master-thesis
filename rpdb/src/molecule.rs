@@ -22,7 +22,11 @@ impl MoleculeLod {
             }
         }
 
-        Self { max_radius, breakpoint, atoms }
+        Self {
+            max_radius,
+            breakpoint,
+            atoms,
+        }
     }
 
     pub fn max_radius(&self) -> f32 {

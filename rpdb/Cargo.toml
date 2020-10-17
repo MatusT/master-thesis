@@ -12,3 +12,4 @@ serde_derive = "1"
 nalgebra-glm = { version = "0.7.0", features = ["serde-serialize"]  }
 ron = "0.6"
 lib3dmol = "0.3.2"
+kmeans = { path = "../kmeans" }

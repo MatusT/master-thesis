@@ -311,7 +311,7 @@ fn start<E: ApplicationStructure>(
 
                     drop(frame);
 
-                    println!("Frame time: {}", start.elapsed().as_millis());
+                    // println!("Frame time: {}", start.elapsed().as_millis());
                     start = Instant::now();
                 }
                 _ => {}
