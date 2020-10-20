@@ -8,6 +8,11 @@ cargo run --release --bin occlusion list_of_object_files
 
 Replace **list_of_object_files** with a space delimited list of files (in .ron format)
 
+Example provided:
+```
+cargo run --release --bin occlusion ..\data\SARS-CoV-2\SARS-CoV-2.ron
+```
+
 Controls:
 - Arrow Up/Down - move up/down in a list of modifiable SSAO parameters
 - 1/2 - switch between modification of SSAO Far(1) and Near(2)
@@ -25,7 +30,9 @@ Ssao settings Near
 [ ] Sharpness: 0
 [ ] Detail shadow strength: 3
 [*] Radius: 56
+[ ] Fog: 10000.0
 ```
 
 # Patches
 
+TODO
