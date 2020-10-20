@@ -684,7 +684,7 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::Down => {
                                 self.state.ssao_parameter +=
-                                    if self.state.ssao_parameter == 6 { 0 } else { 1 };
+                                    if self.state.ssao_parameter == 5 { 0 } else { 1 };
                                 changed = true;
                                 self.state.fog_modifying = false;
                             }
