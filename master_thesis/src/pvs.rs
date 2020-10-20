@@ -11,6 +11,7 @@ use nalgebra_glm::{normalize, ortho_rh_zo, vec2, vec3, TVec2, Vec2, Vec3};
 use wgpu::util::*;
 use wgpu::*;
 
+use std::cell::RefCell;
 use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
@@ -100,14 +101,14 @@ impl StructurePvsModule {
         self: &Rc<StructurePvsModule>,
         device: &Device,
         camera_bind_group_layout: &BindGroupLayout,
-        structure: Rc<Structure>,
+        structure: Rc<RefCell<Structure>>,
         step: u32,
         ranges_limit: usize,
     ) -> StructurePvsField {
         let views_per_circle = 360 / step;
         let sets = vec![None; (views_per_circle * views_per_circle) as usize];
 
-        let r = structure.bounding_radius();
+        let r = structure.borrow().bounding_radius();
         let projection = ortho_rh_zo(-r, r, -r, r, r * 2.0, -r * 2.0);
         let camera = RotationCamera::new(device, camera_bind_group_layout, &projection, r, 0.0);
 
@@ -116,18 +117,18 @@ impl StructurePvsModule {
         let mut visible_bind_groups = Vec::new();
 
         let mut max_size = 0;
-        for i in 0..structure.molecules().len() {
-            max_size = max_size.max(structure.transforms()[i].1);
+        for i in 0..structure.borrow().molecules().len() {
+            max_size = max_size.max(structure.borrow().transforms()[i].1);
             visible.push(
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: None,
-                    contents: cast_slice(&vec![0i32; structure.transforms()[i].1]),
+                    contents: cast_slice(&vec![0i32; structure.borrow().transforms()[i].1]),
                     usage: BufferUsage::STORAGE | BufferUsage::COPY_SRC | BufferUsage::COPY_DST,
                 }),
             );
             visible_staging.push(device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: (structure.transforms()[i].1 * size_of::<i32>()) as u64,
+                size: (structure.borrow().transforms()[i].1 * size_of::<i32>()) as u64,
                 usage: BufferUsage::MAP_READ | BufferUsage::COPY_DST,
                 mapped_at_creation: false,
             }));
@@ -195,7 +196,7 @@ pub struct StructurePvsField {
     module: Rc<StructurePvsModule>,
 
     ///
-    structure: Rc<Structure>,
+    structure: Rc<RefCell<Structure>>,
 
     ///
     camera: RotationCamera,
@@ -278,136 +279,150 @@ impl StructurePvsField {
             return false;
         }
 
-        let mut visible = Vec::new();
-
-        // Configure camera
-        let spherical_coords = self.index_to_spherical(index);
-        self.camera.set_yaw(spherical_coords.x as f32);
-        self.camera.set_pitch(spherical_coords.y as f32);
-
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-
-        self.camera.update_gpu(queue);
-
-        // Clear the visibility data from the device buffers
-        for molecule_id in 0..self.structure.molecules().len() {
-            encoder.copy_buffer_to_buffer(
-                &self.zero_buffer,
-                0,
-                &self.visible[molecule_id],
-                0,
-                (self.structure.transforms()[molecule_id].1 * size_of::<i32>()) as BufferAddress,
-            );
-        }
-
-        // Draw the depth buffer
         {
-            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[],
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.module.depth,
-                    depth_ops: Some(Operations {
-                        load: LoadOp::Clear(0.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }),
-            });
+            let structure = self.structure.borrow();
+            let mut visible = Vec::new();
 
-            rpass.push_debug_group("Draw depth buffer");
-            rpass.set_pipeline(&self.module.pipeline.pipeline);
-            rpass.set_bind_group(0, self.camera.bind_group(), &[]);
+            // Configure camera
+            let spherical_coords = self.index_to_spherical(index);
+            self.camera.set_yaw(spherical_coords.x as f32);
+            self.camera.set_pitch(spherical_coords.y as f32);
 
-            for molecule_id in 0..self.structure.molecules().len() {
-                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+            let mut encoder =
+                device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-                rpass.draw(
-                    self.structure.molecules()[molecule_id].lods()[0].1.start
-                        ..self.structure.molecules()[molecule_id].lods()[0].1.end,
-                    0..self.structure.transforms()[molecule_id].1 as u32,
+            self.camera.update_gpu(queue);
+
+            // Clear the visibility data from the device buffers
+            for molecule_id in 0..structure.molecules().len() {
+                encoder.copy_buffer_to_buffer(
+                    &self.zero_buffer,
+                    0,
+                    &self.visible[molecule_id],
+                    0,
+                    (structure.transforms()[molecule_id].1 * size_of::<i32>()) as BufferAddress,
                 );
             }
-            rpass.pop_debug_group();
-        }
 
-        // Draw a second time without writing to a depth buffer but writing visibility
-        {
-            let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[],
-                depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.module.depth,
-                    depth_ops: Some(Operations {
-                        load: LoadOp::Load,
-                        store: false,
+            // Draw the depth buffer
+            {
+                let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                        attachment: &self.module.depth,
+                        depth_ops: Some(Operations {
+                            load: LoadOp::Clear(0.0),
+                            store: true,
+                        }),
+                        stencil_ops: None,
                     }),
-                    stencil_ops: None,
-                }),
-            });
+                });
 
-            rpass.push_debug_group("Draw write fragment depth buffer");
-            rpass.set_pipeline(&self.module.pipeline_write.pipeline);
-            rpass.set_bind_group(0, self.camera.bind_group(), &[]);
+                rpass.push_debug_group("Draw depth buffer");
+                rpass.set_pipeline(&self.module.pipeline.pipeline);
+                rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
-            for molecule_id in 0..self.structure.molecules().len() {
-                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
-                rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
+                for molecule_id in 0..structure.molecules().len() {
+                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
 
-                rpass.draw(
-                    // self.structure.molecules()[molecule_id].lods()[0].1.start
-                    //     ..self.structure.molecules()[molecule_id].lods()[0].1.end,
-                    self.structure.molecules()[molecule_id].lods().last().unwrap().1.start
-                    ..self.structure.molecules()[molecule_id].lods().last().unwrap().1.end,
-                    0..self.structure.transforms()[molecule_id].1 as u32,
+                    rpass.draw(
+                        structure.molecules()[molecule_id].lods()[0].1.start
+                            ..structure.molecules()[molecule_id].lods()[0].1.end,
+                        0..structure.transforms()[molecule_id].1 as u32,
+                    );
+                }
+                rpass.pop_debug_group();
+            }
+
+            // Draw a second time without writing to a depth buffer but writing visibility
+            {
+                let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
+                        attachment: &self.module.depth,
+                        depth_ops: Some(Operations {
+                            load: LoadOp::Load,
+                            store: false,
+                        }),
+                        stencil_ops: None,
+                    }),
+                });
+
+                rpass.push_debug_group("Draw write fragment depth buffer");
+                rpass.set_pipeline(&self.module.pipeline_write.pipeline);
+                rpass.set_bind_group(0, self.camera.bind_group(), &[]);
+
+                for molecule_id in 0..structure.molecules().len() {
+                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
+                    rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
+
+                    rpass.draw(
+                        // structure.molecules()[molecule_id].lods()[0].1.start
+                        //     ..structure.molecules()[molecule_id].lods()[0].1.end,
+                        structure.molecules()[molecule_id]
+                            .lods()
+                            .last()
+                            .unwrap()
+                            .1
+                            .start
+                            ..structure.molecules()[molecule_id]
+                                .lods()
+                                .last()
+                                .unwrap()
+                                .1
+                                .end,
+                        0..structure.transforms()[molecule_id].1 as u32,
+                    );
+                }
+                rpass.pop_debug_group();
+            }
+
+            // Download the visibility data from the device buffer to the staging one
+            for molecule_id in 0..structure.molecules().len() {
+                encoder.copy_buffer_to_buffer(
+                    &self.visible[molecule_id],
+                    0,
+                    &self.visible_staging[molecule_id],
+                    0,
+                    (structure.transforms()[molecule_id].1 * size_of::<i32>()) as BufferAddress,
                 );
             }
-            rpass.pop_debug_group();
+
+            queue.submit(Some(encoder.finish()));
+
+            // Download the visibility data from the staging buffer to CPU
+            for molecule_id in 0..structure.molecules().len() {
+                let buffer_slice = self.visible_staging[molecule_id].slice(..);
+                let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
+                device.poll(Maintain::Wait);
+
+                let visible_cpu: Vec<u32> = if let Ok(()) = buffer_future.await {
+                    let data = buffer_slice.get_mapped_range();
+                    let result = data
+                        .chunks_exact(4)
+                        .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+                        .collect();
+                    drop(data);
+
+                    result
+                } else {
+                    panic!("failed to run on gpu!")
+                };
+
+                self.visible_staging[molecule_id].unmap();
+
+                let mut tmp = visible_cpu
+                    .iter()
+                    .enumerate()
+                    .filter_map(|e| if *e.1 == 1 { Some(e.0 as u32) } else { None })
+                    .collect::<Vec<u32>>();
+                tmp.sort();
+
+                visible.push(list_to_ranges(&tmp));
+            }
+
+            self.sets[index] = Some(StructurePvs { visible });
         }
-
-        // Download the visibility data from the device buffer to the staging one
-        for molecule_id in 0..self.structure.molecules().len() {
-            encoder.copy_buffer_to_buffer(
-                &self.visible[molecule_id],
-                0,
-                &self.visible_staging[molecule_id],
-                0,
-                (self.structure.transforms()[molecule_id].1 * size_of::<i32>()) as BufferAddress,
-            );
-        }
-
-        queue.submit(Some(encoder.finish()));
-
-        // Download the visibility data from the staging buffer to CPU
-        for molecule_id in 0..self.structure.molecules().len() {
-            let buffer_slice = self.visible_staging[molecule_id].slice(..);
-            let buffer_future = buffer_slice.map_async(wgpu::MapMode::Read);
-            device.poll(Maintain::Wait);
-
-            let visible_cpu: Vec<u32> = if let Ok(()) = buffer_future.await {
-                let data = buffer_slice.get_mapped_range();
-                let result = data
-                    .chunks_exact(4)
-                    .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
-                    .collect();
-                drop(data);
-
-                result
-            } else {
-                panic!("failed to run on gpu!")
-            };
-
-            self.visible_staging[molecule_id].unmap();
-
-            let mut tmp = visible_cpu
-                .iter()
-                .enumerate()
-                .filter_map(|e| if *e.1 == 1 { Some(e.0 as u32) } else { None })
-                .collect::<Vec<u32>>();
-            tmp.sort();
-
-            visible.push(list_to_ranges(&tmp));
-        }
-
-        self.sets[index] = Some(StructurePvs { visible });
         self.reduce(index);
 
         return true;
@@ -447,6 +462,7 @@ impl StructurePvsField {
         use std::time::{Duration, Instant};
         // let start = Instant::now();
 
+        let structure = self.structure.borrow();
         let pvs = self.sets[index].as_mut().unwrap();
 
         let mut gaps = vec![Vec::new(); pvs.visible.len()];
@@ -460,7 +476,7 @@ impl StructurePvsField {
                 if distance > 0 {
                     // Check that it doesn't cross faces
                     // - potentially large range
-                    for face in self.structure.transforms_sides().unwrap()[molecule_index].iter() {
+                    for face in structure.transforms_sides().unwrap()[molecule_index].iter() {
                         if *face >= ranges[range_index - 1].1 && *face <= ranges[range_index].0 {
                             continue 'ranges;
                         }
@@ -491,8 +507,8 @@ impl StructurePvsField {
             let mut min_index = 0;
             for (molecule_index, gaps) in gaps.iter().enumerate() {
                 if let Some(gap) = gaps.last() {
-                    let atoms_count = (self.structure.molecules()[molecule_index].lods()[0].1.end
-                        - self.structure.molecules()[molecule_index].lods()[0].1.start)
+                    let atoms_count = (structure.molecules()[molecule_index].lods()[0].1.end
+                        - structure.molecules()[molecule_index].lods()[0].1.start)
                         / 3;
                     let distance = gap.1 - gap.0;
 
@@ -525,56 +541,58 @@ impl StructurePvsField {
         // println!("Reduction in {:?} ms", start.elapsed().as_micros());
     }
 
-    pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
-        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+    // pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
+    //     let structure = self.structure.borrow();
+    //     let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        if let Some(pvs) = self.sets[index].as_ref() {
-            for molecule_id in 0..self.structure.molecules().len() {
-                let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
-                rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+    //     if let Some(pvs) = self.sets[index].as_ref() {
+    //         for molecule_id in 0..structure.molecules().len() {
+    //             let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
+    //             rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+    //             rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
 
-                for range in pvs.visible[molecule_id].iter() {
-                    let start = self.structure.molecules()[molecule_id].lods()[0].1.start;
-                    let end = self.structure.molecules()[molecule_id].lods()[0].1.end;
+    //             for range in pvs.visible[molecule_id].iter() {
+    //                 let start = structure.molecules()[molecule_id].lods()[0].1.start;
+    //                 let end = structure.molecules()[molecule_id].lods()[0].1.end;
 
-                    rpass.draw(start..end, range.0..range.1);
-                }
-            }
-        } else {
-            self.structure.draw(rpass);
-        }
-    }
+    //                 rpass.draw(start..end, range.0..range.1);
+    //             }
+    //         }
+    //     } else {
+    //         structure.draw(rpass);
+    //     }
+    // }
 
-    pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3, distance: f32) {
-        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+    // pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3, distance: f32) {
+    //     let structure = self.structure.borrow();
+    //     let index = self.spherical_to_index(cartesian_to_spherical(&eye));
 
-        if let Some(pvs) = self.sets[index].as_ref() {
-            for molecule_id in 0..self.structure.molecules().len() {
-                let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
-                rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-                rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
+    //     if let Some(pvs) = self.sets[index].as_ref() {
+    //         for molecule_id in 0..structure.molecules().len() {
+    //             let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
+    //             rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+    //             rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
 
-                for i in 0..self.structure.molecules()[molecule_id].lods().len() {
-                    if (i == self.structure.molecules()[molecule_id].lods().len() - 1)
-                        || (distance > self.structure.molecules()[molecule_id].lods()[i].0
-                            && distance < self.structure.molecules()[molecule_id].lods()[i + 1].0)
-                    {
-                        let start = self.structure.molecules()[molecule_id].lods()[i].1.start;
-                        let end = self.structure.molecules()[molecule_id].lods()[i].1.end;
+    //             for i in 0..structure.molecules()[molecule_id].lods().len() {
+    //                 if (i == structure.molecules()[molecule_id].lods().len() - 1)
+    //                     || (distance > structure.molecules()[molecule_id].lods()[i].0
+    //                         && distance < structure.molecules()[molecule_id].lods()[i + 1].0)
+    //                 {
+    //                     let start = structure.molecules()[molecule_id].lods()[i].1.start;
+    //                     let end = structure.molecules()[molecule_id].lods()[i].1.end;
 
-                        for range in pvs.visible[molecule_id].iter() {
-                            rpass.draw(start..end, range.0..range.1);
-                        }
+    //                     for range in pvs.visible[molecule_id].iter() {
+    //                         rpass.draw(start..end, range.0..range.1);
+    //                     }
 
-                        break;
-                    }
-                }
-            }
-        } else {
-            self.structure.draw_lod(rpass, distance);
-        }
-    }
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     } else {
+    //         structure.draw_lod(rpass, distance);
+    //     }
+    // }
 }
 /// One potentially visible set of field of them.
 #[derive(Clone)]

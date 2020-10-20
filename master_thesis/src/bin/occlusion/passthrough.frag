@@ -1,8 +1,13 @@
 #version 460
 
+#define MODE_STANDARD 0
+#define MODE_SSAO1 1
+#define MODE_SSAO2 2
+
 layout(push_constant) uniform PushConstants {
     vec2 depth_unpack;
     float depth_distance;
+    uint mode;
 };
 
 float ScreenSpaceToViewSpaceDepth(float depth)
@@ -34,8 +39,6 @@ void main() {
     // Fog computation
     const float fog = 1.0 - (clamp(0.0, depth_distance, depth) / depth_distance);
 
-    output_color = vec4(fog, fog, fog, 1.0);
-
     // SSAO interpolation
     const float ao = (ao1 + ao2) / 2.0;
 
@@ -50,12 +53,18 @@ void main() {
     const int T = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(0, h_step)).r);
     const int B = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(0, -h_step)).r);
 
-    if ( (X == R) && (X == L) && (X == T) && (X == B) )
-    { //~ current pixel is NOT on the edge
-        output_color = vec4(fog * ao * color, 1.0);
-    }
-    else
-    { //~ current pixel lies on the edge
-        output_color = vec4(0.0, 0.0, 0.0, 1.0);
+    if (mode == 0) {
+        if ( (X == R) && (X == L) && (X == T) && (X == B) )
+        {
+            output_color = vec4(fog * ao * color, 1.0);
+        }
+        else
+        {
+            output_color = vec4(0.0, 0.0, 0.0, 1.0);
+        }
+    } else if (mode == 1) {
+        output_color = vec4(ao1, ao1, ao1, 1.0);
+    } else if (mode == 2) {
+        output_color = vec4(ao2, ao2, ao2, 1.0);
     }
 }

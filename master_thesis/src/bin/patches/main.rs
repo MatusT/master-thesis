@@ -13,6 +13,7 @@ use rand::distributions::Distribution;
 use wgpu::util::*;
 use wgpu::*;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -46,7 +47,7 @@ pub struct Application {
 
     pvs_module: Rc<StructurePvsModule>,
 
-    covid: Rc<Structure>,
+    covid: Rc<RefCell<Structure>>,
     covid_pvs: StructurePvsField,
     covid_rotations: Vec<Mat4>,
     covid_translations: Vec<Mat4>,
@@ -243,8 +244,7 @@ impl framework::ApplicationStructure for Application {
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-
-            let instance_texture = device
+        let instance_texture = device
             .create_texture(&TextureDescriptor {
                 label: None,
                 size: Extent3d {
@@ -499,7 +499,6 @@ impl framework::ApplicationStructure for Application {
             lod_max_clamp: std::f32::MAX,
             ..Default::default()
         });
-
 
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -856,6 +855,7 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
+            let structure = self.covid.borrow();
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
@@ -873,7 +873,7 @@ impl framework::ApplicationStructure for Application {
                             load: LoadOp::Clear(Color::BLACK),
                             store: true,
                         },
-                    }
+                    },
                 ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
@@ -889,7 +889,6 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            let mut culled = 0;
             for i in 0..self.covid_translations.len() {
                 let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
                 let position = self.covid_translations[i].column(3).xyz();
@@ -898,46 +897,74 @@ impl framework::ApplicationStructure for Application {
                     position.x,
                     position.y,
                     position.z,
-                    self.covid.bounding_radius(),
+                    structure.bounding_radius(),
                 )) {
-                    culled += 1;
                     continue;
                 }
 
                 let direction = self.camera.eye() - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
-            
+                let distance = direction.magnitude();
 
                 rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
 
-                if self.state.draw_lod {
-                    if self.state.draw_occluded
-                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
-                    {
-                        self.covid.draw_lod(&mut rpass, direction.magnitude());
+                let draw_occluded = self.state.draw_occluded
+                    || direction.magnitude() < structure.bounding_radius() * 1.5;
+                let draw_lod = self.state.draw_lod;
+
+                // For each molecule type
+                for molecule_id in 0..structure.molecules().len() {
+                    // Bind its data
+                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
+
+                    // Set its colors
+                    let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
+                    rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+
+                    // Find LOD
+                    let (start, end) = if draw_lod {
+                        let mut start = 0;
+                        let mut end = 0;
+
+                        for i in 0..structure.molecules()[molecule_id].lods().len() {
+                            if (i == structure.molecules()[molecule_id].lods().len() - 1)
+                                || (distance > structure.molecules()[molecule_id].lods()[i].0
+                                    && distance
+                                        < structure.molecules()[molecule_id].lods()[i + 1].0)
+                            {
+                                start = structure.molecules()[molecule_id].lods()[i].1.start;
+                                end = structure.molecules()[molecule_id].lods()[i].1.end;
+
+                                break;
+                            }
+                        }
+
+                        (start, end)
                     } else {
-                        self.covid_pvs.draw_lod(
-                            &mut rpass,
-                            -direction_norm_rot,
-                            direction.magnitude(),
-                        );
+                        let start = structure.molecules()[molecule_id].lods()[0].1.start;
+                        let end = structure.molecules()[molecule_id].lods()[0].1.end;
+
+                        (start, end)
+                    };
+
+                    // IF !draw_occluded && PVS is available -> iterate only over visible parts
+                    if !draw_occluded {
+                        if let Some(pvs) = self.covid_pvs.get_from_eye(direction_norm_rot) {
+                            for range in pvs.visible[molecule_id].iter() {
+                                rpass.draw(start..end, range.0..range.1);
+                            }
+                            continue;
+                        }
                     }
-                } else {
-                    if self.state.draw_occluded
-                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
-                    {
-                        self.covid.draw(&mut rpass);
-                    } else {
-                        self.covid_pvs.draw(&mut rpass, -direction_norm_rot);
-                    }
+
+                    rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
         }
-
         queue.submit(Some(encoder.finish()));
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         self.ssao_module.compute(
             device,
             queue,
@@ -984,7 +1011,11 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
-            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]));
+            rpass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]),
+            );
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }

@@ -13,6 +13,7 @@ use rand::distributions::Distribution;
 use wgpu::util::*;
 use wgpu::*;
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,11 @@ struct ApplicationState {
     pub ssao_settings: [ssao::Settings; 2],
     pub ssao_modifying: usize,
     pub ssao_parameter: u32,
+
+    pub fog_modifying: bool,
+    pub fog_distance: f32,
+
+    pub render_mode: u32,
 }
 
 pub struct Application {
@@ -45,7 +51,7 @@ pub struct Application {
 
     pvs_module: Rc<StructurePvsModule>,
 
-    covid: Rc<Structure>,
+    covid: Rc<RefCell<Structure>>,
     covid_pvs: StructurePvsField,
     covid_rotations: Vec<Mat4>,
     covid_translations: Vec<Mat4>,
@@ -153,19 +159,21 @@ impl framework::ApplicationStructure for Application {
 
         let mut covid = Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout);
 
-        let mut colors: std::collections::HashMap<String, Vec<f32>> = ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap()).expect("Unable to load colors.");
+        let mut colors: std::collections::HashMap<String, Vec<f32>> =
+            ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
+                .expect("Unable to load colors.");
         for molecule in covid.molecules_mut() {
             if let Some(color) = colors.get_mut(molecule.name()) {
                 for channel in color.iter_mut() {
                     if *channel > 1.0 {
-                       *channel = *channel / 255.0;
+                        *channel = *channel / 255.0;
                     }
-                }                
+                }
                 molecule.set_color(&vec3(color[0], color[1], color[2]));
-            }            
+            }
         }
 
-        let covid = Rc::new(covid);
+        let covid = Rc::new(RefCell::new(covid));
 
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(
@@ -274,7 +282,7 @@ impl framework::ApplicationStructure for Application {
         let mut covid_rotations = Vec::new();
         let mut covid_translations = Vec::new();
 
-        let n = 10;
+        let n = 5;
         let n3 = n * n * n;
 
         for i in 0..n3 {
@@ -282,10 +290,11 @@ impl framework::ApplicationStructure for Application {
 
             covid_rotations.push(rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
 
+            let radius = covid.borrow_mut().bounding_radius();
             let position = vec3(
-                x * covid.bounding_radius() * 2.0 * n as f32,
-                y * covid.bounding_radius() * 2.0 * n as f32,
-                z * covid.bounding_radius() * 2.0 * n as f32,
+                x * radius * 2.0 * n as f32,
+                y * radius * 2.0 * n as f32,
+                z * radius * 2.0 * n as f32,
             );
             covid_translations.push(translation(&position));
         }
@@ -432,7 +441,7 @@ impl framework::ApplicationStructure for Application {
             bind_group_layouts: &[&output_bind_group_layout],
             push_constant_ranges: &[PushConstantRange {
                 stages: ShaderStage::FRAGMENT,
-                range: 0..12,
+                range: 0..16,
             }],
         });
 
@@ -523,7 +532,7 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: covid.bounding_radius() * 8.0,
+                    radius: covid.borrow_mut().bounding_radius() * 8.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -547,6 +556,11 @@ impl framework::ApplicationStructure for Application {
             ],
             ssao_modifying: 0,
             ssao_parameter: 0,
+
+            fog_modifying: false,
+            fog_distance: 10000.0,
+
+            render_mode: 0,
         };
 
         let start_time = Instant::now();
@@ -614,48 +628,71 @@ impl framework::ApplicationStructure for Application {
                                 self.state.draw_occluded = !self.state.draw_occluded;
                             }
                             VirtualKeyCode::C => {
-                                // let mut colors: std::collections::HashMap<String, Vec<f32>> = ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap()).expect("Unable to load colors.");
-                                // for molecule in covid.molecules_mut() {
-                                //     if let Some(color) = colors.get_mut(molecule.name()) {
-                                //         for channel in color.iter_mut() {
-                                //             if *channel > 1.0 {
-                                //                *channel = *channel / 255.0;
-                                //             }
-                                //         }                
-                                //         molecule.set_color(&vec3(color[0], color[1], color[2]));
-                                //     }            
-                                // }
+                                let mut colors: std::collections::HashMap<String, Vec<f32>> =
+                                    ron::de::from_str(
+                                        &std::fs::read_to_string("colors.ron").unwrap(),
+                                    )
+                                    .expect("Unable to load colors.");
+                                for molecule in self.covid.borrow_mut().molecules_mut() {
+                                    if let Some(color) = colors.get_mut(molecule.name()) {
+                                        for channel in color.iter_mut() {
+                                            if *channel > 1.0 {
+                                                *channel = *channel / 255.0;
+                                            }
+                                        }
+                                        molecule.set_color(&vec3(color[0], color[1], color[2]));
+                                    }
+                                }
+                            }
+                            VirtualKeyCode::F => {
+                                self.state.fog_modifying = !self.state.fog_modifying;
+                                changed = true;
                             }
                             VirtualKeyCode::Key1 => {
                                 self.state.ssao_modifying = 0;
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Key2 => {
                                 self.state.ssao_modifying = 1;
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Add => {
-                                self.state.ssao_settings[self.state.ssao_modifying]
-                                    .add(self.state.ssao_parameter);
+                                if self.state.fog_modifying {
+                                    self.state.fog_distance += 100.0;
+                                } else {
+                                    self.state.ssao_settings[self.state.ssao_modifying]
+                                        .add(self.state.ssao_parameter);
+                                }
                                 changed = true;
                             }
                             VirtualKeyCode::Subtract => {
-                                self.state.ssao_settings[self.state.ssao_modifying]
-                                    .sub(self.state.ssao_parameter);
+                                if self.state.fog_modifying {
+                                    self.state.fog_distance -= 100.0;
+                                } else {
+                                    self.state.ssao_settings[self.state.ssao_modifying]
+                                        .sub(self.state.ssao_parameter);
+                                }
                                 changed = true;
                             }
                             VirtualKeyCode::Up => {
                                 self.state.ssao_parameter -=
                                     if self.state.ssao_parameter == 0 { 0 } else { 1 };
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Down => {
                                 self.state.ssao_parameter +=
                                     if self.state.ssao_parameter == 6 { 0 } else { 1 };
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
+                            }
+                            VirtualKeyCode::S => {
+                                self.state.render_mode = (self.state.render_mode + 1) % 3;
                             }
                             _ => {}
                         };
@@ -721,13 +758,23 @@ impl framework::ApplicationStructure for Application {
                 self.state.ssao_settings[self.state.ssao_modifying].detailShadowStrength,
             );
             println!(
-                "[{}] Detail shadow strength: {}",
+                "[{}] Radius: {}",
                 if self.state.ssao_parameter != 5 {
                     " "
                 } else {
                     "*"
                 },
                 self.state.ssao_settings[self.state.ssao_modifying].radius,
+            );
+
+            println!(
+                "[{}] Fog: {}",
+                if self.state.fog_modifying{
+                    "*"
+                } else {
+                    " "
+                },
+                self.state.fog_distance,
             );
         }
     }
@@ -799,22 +846,26 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
+            let structure = self.covid.borrow();
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                color_attachments: &[RenderPassColorAttachmentDescriptor {
-                    attachment: &self.output_texture,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::BLACK),
-                        store: true,
+                color_attachments: &[
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &self.output_texture,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
                     },
-                }, RenderPassColorAttachmentDescriptor {
-                    attachment: &self.instance_texture,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::BLACK),
-                        store: true,
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &self.instance_texture,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
                     },
-                }],
+                ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
                     depth_ops: Some(Operations {
@@ -837,43 +888,74 @@ impl framework::ApplicationStructure for Application {
                     position.x,
                     position.y,
                     position.z,
-                    self.covid.bounding_radius(),
+                    structure.bounding_radius(),
                 )) {
                     continue;
                 }
 
                 let direction = self.camera.eye() - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+                let distance = direction.magnitude();
 
                 rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
-                if self.state.draw_lod {
-                    if self.state.draw_occluded
-                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
-                    {
-                        self.covid.draw_lod(&mut rpass, direction.magnitude());
+
+                let draw_occluded = self.state.draw_occluded
+                    || direction.magnitude() < structure.bounding_radius() * 1.5;
+                let draw_lod = self.state.draw_lod;
+
+                // For each molecule type
+                for molecule_id in 0..structure.molecules().len() {
+                    // Bind its data
+                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
+
+                    // Set its colors
+                    let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
+                    rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
+
+                    // Find LOD
+                    let (start, end) = if draw_lod {
+                        let mut start = 0;
+                        let mut end = 0;
+
+                        for i in 0..structure.molecules()[molecule_id].lods().len() {
+                            if (i == structure.molecules()[molecule_id].lods().len() - 1)
+                                || (distance > structure.molecules()[molecule_id].lods()[i].0
+                                    && distance
+                                        < structure.molecules()[molecule_id].lods()[i + 1].0)
+                            {
+                                start = structure.molecules()[molecule_id].lods()[i].1.start;
+                                end = structure.molecules()[molecule_id].lods()[i].1.end;
+
+                                break;
+                            }
+                        }
+
+                        (start, end)
                     } else {
-                        self.covid_pvs.draw_lod(
-                            &mut rpass,
-                            direction_norm_rot,
-                            direction.magnitude(),
-                        );
+                        let start = structure.molecules()[molecule_id].lods()[0].1.start;
+                        let end = structure.molecules()[molecule_id].lods()[0].1.end;
+
+                        (start, end)
+                    };
+
+                    // IF !draw_occluded && PVS is available -> iterate only over visible parts
+                    if !draw_occluded {
+                        if let Some(pvs) = self.covid_pvs.get_from_eye(direction_norm_rot) {
+                            for range in pvs.visible[molecule_id].iter() {
+                                rpass.draw(start..end, range.0..range.1);
+                            }
+                            continue;
+                        }
                     }
-                } else {
-                    if self.state.draw_occluded
-                        || direction.magnitude() < self.covid.bounding_radius() * 1.5
-                    {
-                        self.covid.draw(&mut rpass);
-                    } else {
-                        self.covid_pvs.draw(&mut rpass, direction_norm_rot);
-                    }
+
+                    rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
         }
-
         queue.submit(Some(encoder.finish()));
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         self.ssao_module.compute(
             device,
             queue,
@@ -920,7 +1002,16 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
-            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]));
+            rpass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                0,
+                cast_slice(&[depth_unpack_mul, depth_unpack_add, self.state.fog_distance]),
+            );
+            rpass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                12,
+                cast_slice(&[self.state.render_mode]),
+            );
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }
