@@ -36,6 +36,7 @@ pub struct Application {
     depth_texture: TextureView,
     multisampled_texture: TextureView,
     normals_texture: TextureView,
+    instance_texture: TextureView,
     output_texture: TextureView,
 
     camera: RotationCamera,
@@ -152,28 +153,16 @@ impl framework::ApplicationStructure for Application {
 
         let mut covid = Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout);
 
+        let mut colors: std::collections::HashMap<String, Vec<f32>> = ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap()).expect("Unable to load colors.");
         for molecule in covid.molecules_mut() {
-            println!("Molecule {}", molecule.name());
-            let new_color = match molecule.name() {
-                "S" => vec3(0.60, 0.0, 0.0),
-                // "S" => vec3(0.0, 0.93, 1.0),
-                "E" => vec3(1.0, 1.0, 1.0),
-                "M" => vec3(1.0, 1.0, 1.0),
-                "NTD" => vec3(1.0, 1.0, 1.0),
-                "CTD" => vec3(1.0, 1.0, 1.0),
-                "FLUID_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
-                "FLUID_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
-                "CRYSTALL_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
-                "CRYSTALL_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
-                "P" => vec3(1.0, 1.0, 1.0),
-                "G" => vec3(1.0, 1.0, 1.0),
-                "C" => vec3(1.0, 1.0, 1.0),
-                "A" => vec3(1.0, 1.0, 1.0),
-                "U" => vec3(1.0, 1.0, 1.0),
-                _ => vec3(1.0, 1.0, 1.0),
-            };
-
-            molecule.set_color(&new_color);
+            if let Some(color) = colors.get_mut(molecule.name()) {
+                for channel in color.iter_mut() {
+                    if *channel > 1.0 {
+                       *channel = *channel / 255.0;
+                    }
+                }                
+                molecule.set_color(&vec3(color[0], color[1], color[2]));
+            }            
         }
 
         let covid = Rc::new(covid);
@@ -232,6 +221,24 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba32Float,
+                usage: TextureUsage::OUTPUT_ATTACHMENT
+                    | TextureUsage::SAMPLED
+                    | TextureUsage::STORAGE,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let instance_texture = device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::R32Uint,
                 usage: TextureUsage::OUTPUT_ATTACHMENT
                     | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
@@ -397,13 +404,36 @@ impl framework::ApplicationStructure for Application {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Uint,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
         let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&output_bind_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[PushConstantRange {
+                stages: ShaderStage::FRAGMENT,
+                range: 0..12,
+            }],
         });
 
         let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -475,6 +505,14 @@ impl framework::ApplicationStructure for Application {
                     binding: 3,
                     resource: BindingResource::TextureView(&ssao_finals[1]),
                 },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(&depth_texture),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(&instance_texture),
+                },
             ],
         });
 
@@ -523,6 +561,7 @@ impl framework::ApplicationStructure for Application {
             depth_texture,
             multisampled_texture,
             normals_texture,
+            instance_texture,
             output_texture,
 
             camera,
@@ -573,6 +612,19 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::O => {
                                 self.state.draw_occluded = !self.state.draw_occluded;
+                            }
+                            VirtualKeyCode::C => {
+                                // let mut colors: std::collections::HashMap<String, Vec<f32>> = ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap()).expect("Unable to load colors.");
+                                // for molecule in covid.molecules_mut() {
+                                //     if let Some(color) = colors.get_mut(molecule.name()) {
+                                //         for channel in color.iter_mut() {
+                                //             if *channel > 1.0 {
+                                //                *channel = *channel / 255.0;
+                                //             }
+                                //         }                
+                                //         molecule.set_color(&vec3(color[0], color[1], color[2]));
+                                //     }            
+                                // }
                             }
                             VirtualKeyCode::Key1 => {
                                 self.state.ssao_modifying = 0;
@@ -755,6 +807,13 @@ impl framework::ApplicationStructure for Application {
                         load: LoadOp::Clear(Color::BLACK),
                         store: true,
                     },
+                }, RenderPassColorAttachmentDescriptor {
+                    attachment: &self.instance_texture,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color::BLACK),
+                        store: true,
+                    },
                 }],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
@@ -787,6 +846,7 @@ impl framework::ApplicationStructure for Application {
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
 
                 rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
+                rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
                 if self.state.draw_lod {
                     if self.state.draw_occluded
                         || direction.magnitude() < self.covid.bounding_radius() * 1.5
@@ -841,6 +901,12 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
+            let depth_unpack_mul = -self.camera.ubo().projection[(2, 3)];
+            let mut depth_unpack_add = -self.camera.ubo().projection[(2, 2)];
+            if depth_unpack_mul * depth_unpack_add < 0.0 {
+                depth_unpack_add = -depth_unpack_add;
+            }
+
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
@@ -854,6 +920,7 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
+            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]));
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }

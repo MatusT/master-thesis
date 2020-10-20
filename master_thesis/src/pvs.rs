@@ -530,19 +530,6 @@ impl StructurePvsField {
 
         if let Some(pvs) = self.sets[index].as_ref() {
             for molecule_id in 0..self.structure.molecules().len() {
-                // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
-                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
-                // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
-                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
-                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
-                // && self.structure.molecules()[molecule_id].name() != "E"
-                // && self.structure.molecules()[molecule_id].name() != "M" {
-                //     continue;
-                // }
-                // if self.structure.molecules()[molecule_id].name() == "S"  {
-                //     continue;
-                // }
-
                 let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
                 rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
                 rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);
@@ -564,19 +551,6 @@ impl StructurePvsField {
 
         if let Some(pvs) = self.sets[index].as_ref() {
             for molecule_id in 0..self.structure.molecules().len() {
-                // println!("{} {}", self.structure.molecules()[molecule_id].name(), self.structure.transforms()[molecule_id].1);
-                // if self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE"
-                // && self.structure.molecules()[molecule_id].name() != "CRYSTALL_CUT_SINGLE2"
-                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE"
-                // && self.structure.molecules()[molecule_id].name() != "FLUID_CUT_SINGLE2"
-                // && self.structure.molecules()[molecule_id].name() != "E"
-                // && self.structure.molecules()[molecule_id].name() != "M" {
-                //     continue;
-                // }
-                // if self.structure.molecules()[molecule_id].name() == "S"  {
-                //     continue;
-                // }
-
                 let color: [f32; 3] = self.structure.molecules()[molecule_id].color().into();
                 rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
                 rpass.set_bind_group(1, &self.structure.bind_groups()[molecule_id], &[]);

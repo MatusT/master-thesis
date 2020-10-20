@@ -36,6 +36,7 @@ pub struct Application {
     depth_texture: TextureView,
     multisampled_texture: TextureView,
     normals_texture: TextureView,
+    instance_texture: TextureView,
     output_texture: TextureView,
 
     camera: RotationCamera,
@@ -242,6 +243,25 @@ impl framework::ApplicationStructure for Application {
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+
+            let instance_texture = device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::R32Uint,
+                usage: TextureUsage::OUTPUT_ATTACHMENT
+                    | TextureUsage::SAMPLED
+                    | TextureUsage::STORAGE,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
         let output_texture = device.create_texture(&TextureDescriptor {
             label: None,
             size: Extent3d {
@@ -264,7 +284,7 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
         let mut covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 1024);
+            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 2, 1024);
 
         let covid_rotations = vec![rotation(0.0, &vec3(0.0, 1.0, 0.0))];
         let covid_translations = vec![translation(&vec3(0.0, 0.0, 0.0))];
@@ -385,13 +405,36 @@ impl framework::ApplicationStructure for Application {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Uint,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
         let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&output_bind_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[PushConstantRange {
+                stages: ShaderStage::FRAGMENT,
+                range: 0..12,
+            }],
         });
 
         let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -445,7 +488,18 @@ impl framework::ApplicationStructure for Application {
             ..Default::default()
         });
 
-        println!("Linear clamp sampler pipeline done");
+        let integer_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: std::f32::MAX,
+            ..Default::default()
+        });
+
 
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -466,6 +520,14 @@ impl framework::ApplicationStructure for Application {
                 BindGroupEntry {
                     binding: 3,
                     resource: BindingResource::TextureView(&ssao_finals[1]),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(&depth_texture),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(&instance_texture),
                 },
             ],
         });
@@ -519,6 +581,7 @@ impl framework::ApplicationStructure for Application {
             depth_texture,
             multisampled_texture,
             normals_texture,
+            instance_texture,
             output_texture: output_texture_view,
 
             camera,
@@ -803,14 +866,14 @@ impl framework::ApplicationStructure for Application {
                             store: true,
                         },
                     },
-                    // RenderPassColorAttachmentDescriptor {
-                    //     attachment: &self.normals_texture,
-                    //     resolve_target: None,
-                    //     ops: Operations {
-                    //         load: LoadOp::Clear(Color::BLACK),
-                    //         store: true,
-                    //     },
-                    // }
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &self.instance_texture,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
+                    }
                 ],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                     attachment: &self.depth_texture,
@@ -843,9 +906,11 @@ impl framework::ApplicationStructure for Application {
 
                 let direction = self.camera.eye() - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
-                // let direction_norm_rot2 = direction_norm_rot2;
+            
 
                 rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
+                rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
+
                 if self.state.draw_lod {
                     if self.state.draw_occluded
                         || direction.magnitude() < self.covid.bounding_radius() * 1.5
@@ -868,8 +933,6 @@ impl framework::ApplicationStructure for Application {
                     }
                 }
             }
-
-            // println!("Culled {}", culled);
         }
 
         queue.submit(Some(encoder.finish()));
@@ -902,6 +965,12 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
+            let depth_unpack_mul = -self.camera.ubo().projection[(2, 3)];
+            let mut depth_unpack_add = -self.camera.ubo().projection[(2, 2)];
+            if depth_unpack_mul * depth_unpack_add < 0.0 {
+                depth_unpack_add = -depth_unpack_add;
+            }
+
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
@@ -915,6 +984,7 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
+            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]));
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }

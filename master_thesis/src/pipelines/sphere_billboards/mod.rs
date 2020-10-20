@@ -26,7 +26,7 @@ impl SphereBillboardsPipeline {
             push_constant_ranges: &[
                 PushConstantRange {
                     stages: ShaderStage::VERTEX,
-                    range: 0..4,
+                    range: 0..8,
                 },
                 PushConstantRange {
                     stages: ShaderStage::FRAGMENT,
@@ -60,6 +60,13 @@ impl SphereBillboardsPipeline {
                 // Output color
                 ColorStateDescriptor {
                     format: TextureFormat::Rgba8Unorm,
+                    color_blend: BlendDescriptor::REPLACE,
+                    alpha_blend: BlendDescriptor::REPLACE,
+                    write_mask: ColorWrite::ALL,
+                },
+                // Output color
+                ColorStateDescriptor {
+                    format: TextureFormat::R32Uint,
                     color_blend: BlendDescriptor::REPLACE,
                     alpha_blend: BlendDescriptor::REPLACE,
                     write_mask: ColorWrite::ALL,

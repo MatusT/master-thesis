@@ -2,6 +2,7 @@
 
 layout(push_constant) uniform PushConstants {
     float time;
+    uint object_id;
 };
 
 layout(set = 0, binding = 0, std140) uniform CameraMatrices {
@@ -29,9 +30,10 @@ layout(location = 1) out flat vec4 center_vs;
 layout(location = 2) out vec4 position_vs;
 layout(location = 3) out vec4 position_cs;
 layout(location = 4) out flat float scale;
+layout(location = 5) out flat uint instance;
 
 #ifdef DEBUG
-layout(location = 5) out vec3 color;
+layout(location = 6) out vec3 color;
 #endif
 
 const vec2 vertices[3] = {
@@ -83,7 +85,7 @@ void main() {
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
   mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
-  const float offset = 1.0 * sin(4.0f * 3.14159265359f * time + float(gl_InstanceIndex) / 10.0);
+  const float offset = 1.0 * sin(3.0f * 3.14159265359f * time + float(gl_InstanceIndex) / 10.0);
 
   const vec4 center_position =
       (model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0)) + vec4(offset, offset, offset, 0.0);
@@ -104,5 +106,6 @@ void main() {
 	color = vec3(float(mhash & 255), float((mhash >> 8) & 255), float((mhash >> 16) & 255)) / 255.0;
   #endif
 
+  instance = object_id * 100000 + uint(gl_InstanceIndex);
   gl_Position = position_cs;
 }
