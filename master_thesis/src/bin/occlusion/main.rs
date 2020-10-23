@@ -51,12 +51,14 @@ pub struct Application {
 
     pvs_module: Rc<StructurePvsModule>,
 
-    covid: Rc<RefCell<Structure>>,
-    covid_pvs: StructurePvsField,
-    covid_rotations: Vec<Mat4>,
-    covid_translations: Vec<Mat4>,
-    covid_transforms_gpu: Buffer,
-    covid_transforms_bgs: Vec<BindGroup>,
+    structure: Rc<RefCell<Structure>>,
+    structures_pvs: StructurePvsField,
+
+    /// (Translation, Rotation)
+    structures_transforms: Vec<(Mat4, Mat4)>,
+
+    structures_transforms_gpu: Buffer,
+    structures_transforms_bg: BindGroup,
 
     ssao_module: ssao::SsaoModule,
     ssao_finals: [TextureView; 2],
@@ -134,7 +136,7 @@ impl framework::ApplicationStructure for Application {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                        dynamic: true,
                         min_binding_size: None,
                     },
                     count: None,
@@ -276,19 +278,17 @@ impl framework::ApplicationStructure for Application {
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let covid_pvs =
+        let structures_pvs =
             pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 96);
-
-        let mut covid_rotations = Vec::new();
-        let mut covid_translations = Vec::new();
-
+        
         let n = 5;
         let n3 = n * n * n;
 
+        let mut structures_transforms: Vec<(Mat4, Mat4)> = Vec::new();
         for i in 0..n3 {
             let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
 
-            covid_rotations.push(rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0)));
+            let rotation: Mat4 = rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0));
 
             let radius = covid.borrow_mut().bounding_radius();
             let position = vec3(
@@ -296,15 +296,17 @@ impl framework::ApplicationStructure for Application {
                 y * radius * 2.0 * n as f32,
                 z * radius * 2.0 * n as f32,
             );
-            covid_translations.push(translation(&position));
+            let translation = translation(&position);
+
+            structures_transforms.push((translation, rotation));
         }
 
-        println!("Amount of structures: {}", covid_translations.len());
+        println!("Amount of structures: {}", structures_transforms.len());
 
-        let covid_transforms_gpu = {
+        let structures_transforms_gpu = {
             let mut raw: Vec<f32> = Vec::new();
-            for (translation, rotation) in covid_translations.iter().zip(covid_rotations.iter()) {
-                let transform: Mat4 = translation * rotation;
+            for (translation, rotation) in structures_transforms.iter() {
+                let transform: Mat4 = (*translation) * (*rotation);
                 raw.extend_from_slice(transform.as_slice());
                 raw.extend_from_slice(&[0.0; 48]);
             }
@@ -315,22 +317,18 @@ impl framework::ApplicationStructure for Application {
             })
         };
 
-        let mut covid_transforms_bgs = Vec::new();
-        for i in 0..covid_translations.len() {
-            let i = i as u64;
-            covid_transforms_bgs.push(device.create_bind_group(&BindGroupDescriptor {
-                label: None,
-                layout: &per_structure_bind_group_layout,
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer {
-                        buffer: &covid_transforms_gpu,
-                        offset: i * 256,
-                        size: std::num::NonZeroU64::new(256),
-                    },
-                }],
-            }));
-        }
+        let structures_transforms_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &per_structure_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer {
+                    buffer: &structures_transforms_gpu,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(256),
+                },
+            }],
+        });
 
         let ssao_module = ssao::SsaoModule::new(&device, width, height);
         let ssao_finals = [
@@ -584,12 +582,11 @@ impl framework::ApplicationStructure for Application {
 
             pvs_module: pvs_module.clone(),
 
-            covid: covid.clone(),
-            covid_pvs,
-            covid_rotations,
-            covid_translations,
-            covid_transforms_gpu,
-            covid_transforms_bgs,
+            structure: covid.clone(),
+            structures_pvs,
+            structures_transforms,
+            structures_transforms_gpu,
+            structures_transforms_bg,
 
             ssao_module,
             ssao_finals,
@@ -633,7 +630,7 @@ impl framework::ApplicationStructure for Application {
                                         &std::fs::read_to_string("colors.ron").unwrap(),
                                     )
                                     .expect("Unable to load colors.");
-                                for molecule in self.covid.borrow_mut().molecules_mut() {
+                                for molecule in self.structure.borrow_mut().molecules_mut() {
                                     if let Some(color) = colors.get_mut(molecule.name()) {
                                         for channel in color.iter_mut() {
                                             if *channel > 1.0 {
@@ -794,8 +791,8 @@ impl framework::ApplicationStructure for Application {
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
         // Rotate the structure
-        for r in self.covid_rotations.iter_mut() {
-            *r = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*r);
+        for r in self.structures_transforms.iter_mut() {
+            r.1 = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (r.1);
         }
 
         //================== DATA UPLOAD
@@ -806,37 +803,36 @@ impl framework::ApplicationStructure for Application {
 
         let culler = FrustrumCuller::from_matrix(self.camera.ubo().projection_view);
 
-        let mut covid_transforms_f32: Vec<f32> = Vec::new();
+        let mut structures_transforms_f32: Vec<f32> = Vec::new();
         for (translation, rotation) in self
-            .covid_translations
+            .structures_transforms
             .iter()
-            .zip(self.covid_rotations.iter())
         {
             let transform: Mat4 = translation * rotation;
-            covid_transforms_f32.extend_from_slice(transform.as_slice());
-            covid_transforms_f32.extend_from_slice(&[0.0; 48]);
+            structures_transforms_f32.extend_from_slice(transform.as_slice());
+            structures_transforms_f32.extend_from_slice(&[0.0; 48]);
         }
 
         queue.write_buffer(
-            &self.covid_transforms_gpu,
+            &self.structures_transforms_gpu,
             0,
-            cast_slice(&covid_transforms_f32),
+            cast_slice(&structures_transforms_f32),
         );
 
         //================== DATA UPLOAD
         let mut computed_count = 0;
-        for i in 0..self.covid_rotations.len() {
+        for i in 0..self.structures_transforms.len() {
             if computed_count > 10 {
                 continue;
             }
 
-            let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
-            let position = self.covid_translations[i].column(3).xyz();
+            let rotation = self.structures_transforms[i].1.fixed_slice::<U3, U3>(0, 0);
+            let position = self.structures_transforms[i].0.column(3).xyz();
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
             if futures::executor::block_on(
-                self.covid_pvs.compute_from_eye(device, queue, direction),
+                self.structures_pvs.compute_from_eye(device, queue, direction),
             ) {
                 computed_count += 1;
             }
@@ -846,7 +842,7 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         {
-            let structure = self.covid.borrow();
+            let structure = self.structure.borrow();
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
@@ -880,9 +876,9 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            for i in 0..self.covid_translations.len() {
-                let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
-                let position = self.covid_translations[i].column(3).xyz();
+            for i in 0..self.structures_transforms.len() {
+                let rotation = self.structures_transforms[i].1.fixed_slice::<U3, U3>(0, 0);
+                let position = self.structures_transforms[i].0.column(3).xyz();
 
                 if !culler.test_sphere(vec4(
                     position.x,
@@ -897,7 +893,7 @@ impl framework::ApplicationStructure for Application {
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
                 let distance = direction.magnitude();
 
-                rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
+                rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
 
                 let draw_occluded = self.state.draw_occluded
@@ -941,7 +937,7 @@ impl framework::ApplicationStructure for Application {
 
                     // IF !draw_occluded && PVS is available -> iterate only over visible parts
                     if !draw_occluded {
-                        if let Some(pvs) = self.covid_pvs.get_from_eye(direction_norm_rot) {
+                        if let Some(pvs) = self.structures_pvs.get_from_eye(direction_norm_rot) {
                             for range in pvs.visible[molecule_id].iter() {
                                 rpass.draw(start..end, range.0..range.1);
                             }
