@@ -160,7 +160,7 @@ impl RotationCamera {
         let result = self.pitch + pitch_delta;
         if result <= std::f64::consts::PI && result >= 1.0f64 {
             self.set_pitch(result);
-        }        
+        }
     }
 }
 
@@ -203,7 +203,11 @@ impl Camera for RotationCamera {
     }
 
     fn ubo(&mut self) -> CameraUbo {
-        let eye = vec3(self.eye().x as f32, self.eye().y as f32, self.eye().z as f32);
+        let eye = vec3(
+            self.eye().x as f32,
+            self.eye().y as f32,
+            self.eye().z as f32,
+        );
         self.ubo.view = glm::look_at_rh(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         self.ubo.projection_view = self.ubo.projection * self.ubo.view;
         self.ubo.position = glm::vec4(eye.x, eye.y, eye.z, 1.0);

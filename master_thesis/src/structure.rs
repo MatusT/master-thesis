@@ -94,6 +94,10 @@ impl Molecule {
         self.bounding_box
     }
 
+    pub fn bounding_radius(&self) -> f32 {
+        self.bounding_radius
+    }
+
     pub fn color(&self) -> Vec3 {
         self.color
     }
@@ -212,7 +216,7 @@ impl Structure {
             bounding_radius,
         }
     }
-    
+
     pub fn from_ron_with_bgs<P: AsRef<std::path::Path>>(
         device: &Device,
         path: P,
@@ -315,14 +319,17 @@ impl Structure {
             max: vec3(bounding_radius, bounding_radius, bounding_radius),
         };
 
-        (Self {
-            molecules,
-            transforms,
-            transforms_sides: Some(transforms_sides),
-            bind_groups,
-            bounding_box,
-            bounding_radius,
-        }, return_bind_groups)
+        (
+            Self {
+                molecules,
+                transforms,
+                transforms_sides: Some(transforms_sides),
+                bind_groups,
+                bounding_box,
+                bounding_radius,
+            },
+            return_bind_groups,
+        )
     }
 
     pub fn molecules(&self) -> &[Molecule] {

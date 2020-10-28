@@ -16,18 +16,12 @@ use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
 
-use crate::*;
 use crate::camera::*;
 use crate::pipelines::SphereBillboardsDepthPipeline;
 use crate::structure::*;
+use crate::*;
 
 pub struct StructurePvsModule {
-    width: u32,
-    height: u32,
-
-    ///
-    camera: RotationCamera,
-
     ///
     depth: TextureView,
 
@@ -43,9 +37,6 @@ pub struct StructurePvsModule {
 impl StructurePvsModule {
     pub fn new(
         device: &Device,
-        width: u32,
-        height: u32,
-        projection: Mat4,
         camera_bind_group_layout: &BindGroupLayout,
         per_molecule_bind_group_layout: &BindGroupLayout,
     ) -> Self {
@@ -53,8 +44,8 @@ impl StructurePvsModule {
             .create_texture(&TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: 1024,
-                    height: 1024,
+                    width: 512,
+                    height: 512,
                     depth: 1,
                 },
                 mip_level_count: 1,
@@ -98,18 +89,7 @@ impl StructurePvsModule {
             true,
         );
 
-        let mut camera = RotationCamera::new(
-            &device,
-            &camera_bind_group_layout,
-            &projection,
-            0.0,
-            100.0,
-        );
-
         Self {
-            width,
-            height,
-            camera,
             depth,
             pipeline,
             pipeline_write,
@@ -130,7 +110,8 @@ impl StructurePvsModule {
         let sets = vec![None; (views_per_circle * views_per_circle) as usize];
 
         let r = structure.borrow().bounding_radius();
-        let camera = RotationCamera::new(device, camera_bind_group_layout, &self.camera.ubo.projection, -r, 0.0);
+        let projection = ortho_rh_zo(-r, r, -r, r, 0.0, 2.0 * r);
+        let camera = RotationCamera::new(device, camera_bind_group_layout, &projection, -r, 0.0);
 
         let mut visible = Vec::new();
         let mut visible_staging = Vec::new();
@@ -355,6 +336,7 @@ impl StructurePvsField {
                 rpass.set_bind_group(0, self.camera.bind_group(), &[]);
 
                 for molecule_id in 0..structure.molecules().len() {
+                    // rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[structure.molecules()[molecule_id].bounding_radius()]));
                     rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
                     rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
 
@@ -362,6 +344,7 @@ impl StructurePvsField {
                     // let lod = structure.molecules()[molecule_id].lods()[0];
                     rpass.draw(
                         lod.1.start..lod.1.end,
+                        // 0..3,
                         0..structure.transforms()[molecule_id].1 as u32,
                     );
                 }
@@ -419,7 +402,12 @@ impl StructurePvsField {
         return true;
     }
 
-    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: TVec3<f64>) -> bool {
+    pub async fn compute_from_eye(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        eye: TVec3<f64>,
+    ) -> bool {
         let index = self.spherical_to_index(cartesian_to_spherical(&vec3(eye.x, eye.y, eye.z)));
 
         self.compute(device, queue, index).await
@@ -444,7 +432,11 @@ impl StructurePvsField {
     /// * `eye` - vector **to** viewing point. Must be in the local coordinate system of the structure. If the structure is rotated, so must be the vector.
     ///
     pub fn get_from_eye(&self, eye: Vec3) -> Option<&StructurePvs> {
-        let index = self.spherical_to_index(cartesian_to_spherical(&vec3(eye.x as f64, eye.y as f64, eye.z as f64)));
+        let index = self.spherical_to_index(cartesian_to_spherical(&vec3(
+            eye.x as f64,
+            eye.y as f64,
+            eye.z as f64,
+        )));
 
         self.get(index)
     }

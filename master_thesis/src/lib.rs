@@ -34,7 +34,7 @@ pub fn cartesian_to_spherical(cartesian: &TVec3<f64>) -> TVec2<f64> {
     let z = cartesian.y;
 
     let theta = y.atan2(x);
-    let phi = (x*x+y*y).sqrt().atan2(z);
+    let phi = (x * x + y * y).sqrt().atan2(z);
 
     vec2(theta, phi)
 }
@@ -47,8 +47,8 @@ pub fn spherical_to_cartesian(spherical: &TVec2<f64>) -> TVec3<f64> {
         theta = -(std::f64::consts::TAU - theta);
     }
     if theta <= -std::f64::consts::PI {
-        theta = std::f64::consts::TAU + theta;                        
-    } 
+        theta = std::f64::consts::TAU + theta;
+    }
 
     let phi = spherical.y;
 

@@ -153,11 +153,8 @@ impl framework::ApplicationStructure for Application {
         let mut structures = Vec::new();
         let mut structures_bgs = Vec::new();
         for path in args[1..].iter() {
-            let (structure, structure_bgs) = Structure::from_ron_with_bgs(
-                &device,
-                path,
-                &per_molecule_bind_group_layout,
-            );
+            let (structure, structure_bgs) =
+                Structure::from_ron_with_bgs(&device, path, &per_molecule_bind_group_layout);
 
             structures.push(Rc::new(RefCell::new(structure)));
             structures_bgs.push(structure_bgs)
@@ -293,9 +290,6 @@ impl framework::ApplicationStructure for Application {
 
         let pvs_module = Rc::new(StructurePvsModule::new(
             &device,
-            width,
-            height,
-            ortho_rh_zo(-r, r, -r, r, 0.0, 2.0 * r),
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
@@ -304,7 +298,13 @@ impl framework::ApplicationStructure for Application {
         let structures_pvs = structures
             .iter()
             .map(|structure| {
-                pvs_module.pvs_field(&device, &camera_bind_group_layout, structure.clone(), 5, reduce as usize)
+                pvs_module.pvs_field(
+                    &device,
+                    &camera_bind_group_layout,
+                    structure.clone(),
+                    5,
+                    reduce as usize,
+                )
             })
             .collect();
 
@@ -717,10 +717,11 @@ impl framework::ApplicationStructure for Application {
                             VirtualKeyCode::R => {
                                 let eye = self.camera.eye();
                                 let eye = vec3(eye.x as f32, eye.y as f32, eye.z as f32);
-                    
-                                let rotation = self.structures_transforms[0].2.fixed_slice::<U3, U3>(0, 0);
+
+                                let rotation =
+                                    self.structures_transforms[0].2.fixed_slice::<U3, U3>(0, 0);
                                 let position = self.structures_transforms[0].1.column(3).xyz();
-                    
+
                                 let direction =
                                     rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
@@ -729,8 +730,10 @@ impl framework::ApplicationStructure for Application {
                                 let mut visible_molecules = 0u32;
                                 if let Some(set) = self.structures_pvs[0].get_from_eye(direction) {
                                     for (molecule_index, ranges) in set.visible.iter().enumerate() {
-                                        total_molecules +=
-                                            self.structures[0].borrow().transforms()[molecule_index].1 as u32;
+                                        total_molecules += self.structures[0].borrow().transforms()
+                                            [molecule_index]
+                                            .1
+                                            as u32;
                                         for range in ranges {
                                             visible_molecules += (range.1 - range.0) as u32;
                                         }
@@ -756,8 +759,10 @@ impl framework::ApplicationStructure for Application {
                                     0.1,
                                     10000.0,
                                 ));
-                                self.camera.set_distance(self.structures[0].borrow().bounding_radius() * 3.0);
-                            },
+                                self.camera.set_distance(
+                                    self.structures[0].borrow().bounding_radius() * 3.0,
+                                );
+                            }
                             _ => {}
                         };
                     }
@@ -895,19 +900,20 @@ impl framework::ApplicationStructure for Application {
             let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
             let position = self.structures_transforms[i].1.column(3).xyz();
 
-            let direction =
-                rotation.try_inverse().unwrap() * normalize(&(eye - position));
+            let direction = rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
-            if futures::executor::block_on(
-                self.structures_pvs[0]
-                    .compute_from_eye(device, queue, vec3(direction.x as f64, direction.y as f64, direction.z as f64)),
-            ) {
+            if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
+                device,
+                queue,
+                vec3(direction.x as f64, direction.y as f64, direction.z as f64),
+            )) {
                 computed_count += 1;
             }
-            if futures::executor::block_on(
-                self.structures_pvs[0]
-                    .compute_from_eye(device, queue, -vec3(direction.x as f64, direction.y as f64, direction.z as f64)),
-            ) {
+            if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
+                device,
+                queue,
+                -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
+            )) {
                 computed_count += 1;
             }
         }
@@ -915,7 +921,7 @@ impl framework::ApplicationStructure for Application {
         //================== RENDER MOLECULES
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        {      
+        {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
@@ -957,15 +963,21 @@ impl framework::ApplicationStructure for Application {
                 let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
                 let position = self.structures_transforms[i].1.column(3).xyz();
 
-                let direction = vec3(self.camera.eye().x as f32, self.camera.eye().y as f32, self.camera.eye().z as f32) - position;
-                let direction_norm_rot =
-                    rotation.try_inverse().unwrap() * normalize(&direction);
-                let distance = direction.magnitude();
+                let direction = vec3(
+                    self.camera.eye().x as f32,
+                    self.camera.eye().y as f32,
+                    self.camera.eye().z as f32,
+                ) - position;
+                let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+                let distance = (direction.magnitude()
+                    - 2.0 * self.structures[i].borrow().bounding_radius())
+                .max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
 
-                let draw_occluded = self.state.draw_occluded;
+                let draw_occluded =
+                    self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
                 let draw_lod = self.state.draw_lod;
 
                 // For each molecule type
@@ -1005,8 +1017,7 @@ impl framework::ApplicationStructure for Application {
 
                     // IF !draw_occluded && PVS is available -> iterate only over visible parts
                     if !draw_occluded {
-                        if let Some(pvs) = structure_pvs.get_from_eye(direction_norm_rot)
-                        {
+                        if let Some(pvs) = structure_pvs.get_from_eye(-direction_norm_rot) {
                             for range in pvs.visible[molecule_id].iter() {
                                 rpass.draw(start..end, range.0..range.1);
                             }
@@ -1017,7 +1028,7 @@ impl framework::ApplicationStructure for Application {
                     rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
-        }        
+        }
         queue.submit(Some(encoder.finish()));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });

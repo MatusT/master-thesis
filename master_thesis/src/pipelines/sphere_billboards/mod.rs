@@ -270,7 +270,11 @@ impl SphereBillboardsDepthPipeline {
         write_visibility: bool,
     ) -> Self {
         // Shaders
-        let vs_module = device.create_shader_module(include_spirv!("billboards_depth.vert.spv"));
+        let vs_module = if write_visibility {
+            device.create_shader_module(include_spirv!("billboards_depth_write.vert.spv"))
+        } else {
+            device.create_shader_module(include_spirv!("billboards_depth.vert.spv"))
+        };
         let fs_module = if write_visibility {
             device.create_shader_module(include_spirv!("billboards_depth_write.frag.spv"))
         } else {
@@ -291,7 +295,10 @@ impl SphereBillboardsDepthPipeline {
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
+            push_constant_ranges: &[PushConstantRange {
+                stages: ShaderStage::VERTEX,
+                range: 0..4,
+            }],
         });
 
         let depth_stencil_state = if write_visibility {
