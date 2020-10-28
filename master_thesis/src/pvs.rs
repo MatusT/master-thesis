@@ -7,7 +7,7 @@
 ///!      | has multiple
 ///! Vec<Structure>
 use bytemuck::cast_slice;
-use nalgebra_glm::{normalize, ortho_rh_zo, vec2, vec3, TVec2, Vec2, Vec3};
+use nalgebra_glm::*;
 use wgpu::util::*;
 use wgpu::*;
 
@@ -16,11 +16,18 @@ use std::convert::TryInto;
 use std::mem::size_of;
 use std::rc::Rc;
 
+use crate::*;
 use crate::camera::*;
 use crate::pipelines::SphereBillboardsDepthPipeline;
 use crate::structure::*;
 
 pub struct StructurePvsModule {
+    width: u32,
+    height: u32,
+
+    ///
+    camera: RotationCamera,
+
     ///
     depth: TextureView,
 
@@ -36,6 +43,9 @@ pub struct StructurePvsModule {
 impl StructurePvsModule {
     pub fn new(
         device: &Device,
+        width: u32,
+        height: u32,
+        projection: Mat4,
         camera_bind_group_layout: &BindGroupLayout,
         per_molecule_bind_group_layout: &BindGroupLayout,
     ) -> Self {
@@ -43,8 +53,8 @@ impl StructurePvsModule {
             .create_texture(&TextureDescriptor {
                 label: None,
                 size: Extent3d {
-                    width: 512,
-                    height: 512,
+                    width: 1024,
+                    height: 1024,
                     depth: 1,
                 },
                 mip_level_count: 1,
@@ -88,7 +98,18 @@ impl StructurePvsModule {
             true,
         );
 
+        let mut camera = RotationCamera::new(
+            &device,
+            &camera_bind_group_layout,
+            &projection,
+            0.0,
+            100.0,
+        );
+
         Self {
+            width,
+            height,
+            camera,
             depth,
             pipeline,
             pipeline_write,
@@ -109,8 +130,7 @@ impl StructurePvsModule {
         let sets = vec![None; (views_per_circle * views_per_circle) as usize];
 
         let r = structure.borrow().bounding_radius();
-        let projection = ortho_rh_zo(-r, r, -r, r, r * 2.0, -r * 2.0);
-        let camera = RotationCamera::new(device, camera_bind_group_layout, &projection, r, 0.0);
+        let camera = RotationCamera::new(device, camera_bind_group_layout, &self.camera.ubo.projection, -r, 0.0);
 
         let mut visible = Vec::new();
         let mut visible_staging = Vec::new();
@@ -153,9 +173,10 @@ impl StructurePvsModule {
         });
 
         StructurePvsField {
+            camera,
+
             module: Rc::clone(&self),
             structure: Rc::clone(&structure),
-            camera,
 
             sets,
 
@@ -171,35 +192,16 @@ impl StructurePvsModule {
     }
 }
 
-/// Converts (X, Y, Z) normalized cartesian coordinates to (φ, θ)/(azimuth, latitude) spherical coordinate
-pub fn cartesian_to_spherical(v: &Vec3) -> Vec2 {
-    let v = normalize(&v);
-
-    vec2(v[2].atan2(v[0]), v[1].atan())
-}
-
-/// Converts (φ, θ)/(azimuth, latitude) spherical coordinates to (X, Y, Z) normalized cartesian coordinates
-pub fn spherical_to_cartesian(v: &Vec2) -> Vec3 {
-    let yaw = v[0];
-    let pitch = v[1];
-
-    let x = yaw.cos() * pitch.cos();
-    let y = pitch.sin();
-    let z = yaw.sin() * pitch.cos();
-
-    vec3(x, y, z)
-}
-
 /// `BiologicalStructure`'s field of all potentially visible sets at certain
 pub struct StructurePvsField {
+    ///
+    camera: RotationCamera,
+
     ///
     module: Rc<StructurePvsModule>,
 
     ///
     structure: Rc<RefCell<Structure>>,
-
-    ///
-    camera: RotationCamera,
 
     ///
     pub sets: Vec<Option<StructurePvs>>,
@@ -224,7 +226,7 @@ pub struct StructurePvsField {
 }
 
 impl StructurePvsField {
-    pub fn spherical_to_snapped(&self, spherical_coords: Vec2) -> TVec2<u32> {
+    pub fn spherical_to_snapped(&self, spherical_coords: TVec2<f64>) -> TVec2<u32> {
         // Convert spherical coordinates to degrees and modulo them into the range of 0-360.
         let snapped_coords =
             spherical_coords.apply_into(|e| ((e.to_degrees().round() % 360.0) + 360.0) % 360.0);
@@ -238,15 +240,15 @@ impl StructurePvsField {
         snapped_coords
     }
 
-    pub fn spherical_to_index(&self, spherical_coords: Vec2) -> usize {
+    pub fn spherical_to_index(&self, spherical_coords: TVec2<f64>) -> usize {
         self.snapped_to_index(self.spherical_to_snapped(spherical_coords))
     }
 
-    pub fn snapped_to_spherical(&self, snapped_coords: TVec2<u32>) -> Vec2 {
+    pub fn snapped_to_spherical(&self, snapped_coords: TVec2<u32>) -> TVec2<f64> {
         // Conver to floating point radians.
         let spherical_coords = vec2(
-            (snapped_coords.x as f32).to_radians(),
-            (snapped_coords.y as f32).to_radians(),
+            (snapped_coords.x as f64).to_radians(),
+            (snapped_coords.y as f64).to_radians(),
         );
 
         spherical_coords
@@ -270,7 +272,7 @@ impl StructurePvsField {
         vec2((index / steps) * self.step, (index % steps) * self.step)
     }
 
-    pub fn index_to_spherical(&self, index: usize) -> Vec2 {
+    pub fn index_to_spherical(&self, index: usize) -> TVec2<f64> {
         self.snapped_to_spherical(self.index_to_snapped(index))
     }
 
@@ -285,8 +287,8 @@ impl StructurePvsField {
 
             // Configure camera
             let spherical_coords = self.index_to_spherical(index);
-            self.camera.set_yaw(spherical_coords.x as f32);
-            self.camera.set_pitch(spherical_coords.y as f32);
+            self.camera.set_yaw(spherical_coords.x);
+            self.camera.set_pitch(spherical_coords.y);
 
             let mut encoder =
                 device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -356,21 +358,10 @@ impl StructurePvsField {
                     rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
                     rpass.set_bind_group(2, &self.visible_bind_groups[molecule_id], &[]);
 
+                    let lod = structure.molecules()[molecule_id].lods().last().unwrap();
+                    // let lod = structure.molecules()[molecule_id].lods()[0];
                     rpass.draw(
-                        // structure.molecules()[molecule_id].lods()[0].1.start
-                        //     ..structure.molecules()[molecule_id].lods()[0].1.end,
-                        structure.molecules()[molecule_id]
-                            .lods()
-                            .last()
-                            .unwrap()
-                            .1
-                            .start
-                            ..structure.molecules()[molecule_id]
-                                .lods()
-                                .last()
-                                .unwrap()
-                                .1
-                                .end,
+                        lod.1.start..lod.1.end,
                         0..structure.transforms()[molecule_id].1 as u32,
                     );
                 }
@@ -428,8 +419,8 @@ impl StructurePvsField {
         return true;
     }
 
-    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: Vec3) -> bool {
-        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+    pub async fn compute_from_eye(&mut self, device: &Device, queue: &Queue, eye: TVec3<f64>) -> bool {
+        let index = self.spherical_to_index(cartesian_to_spherical(&vec3(eye.x, eye.y, eye.z)));
 
         self.compute(device, queue, index).await
     }
@@ -453,7 +444,7 @@ impl StructurePvsField {
     /// * `eye` - vector **to** viewing point. Must be in the local coordinate system of the structure. If the structure is rotated, so must be the vector.
     ///
     pub fn get_from_eye(&self, eye: Vec3) -> Option<&StructurePvs> {
-        let index = self.spherical_to_index(cartesian_to_spherical(&eye));
+        let index = self.spherical_to_index(cartesian_to_spherical(&vec3(eye.x as f64, eye.y as f64, eye.z as f64)));
 
         self.get(index)
     }
@@ -541,58 +532,9 @@ impl StructurePvsField {
         // println!("Reduction in {:?} ms", start.elapsed().as_micros());
     }
 
-    // pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3) {
-    //     let structure = self.structure.borrow();
-    //     let index = self.spherical_to_index(cartesian_to_spherical(&eye));
-
-    //     if let Some(pvs) = self.sets[index].as_ref() {
-    //         for molecule_id in 0..structure.molecules().len() {
-    //             let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
-    //             rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-    //             rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
-
-    //             for range in pvs.visible[molecule_id].iter() {
-    //                 let start = structure.molecules()[molecule_id].lods()[0].1.start;
-    //                 let end = structure.molecules()[molecule_id].lods()[0].1.end;
-
-    //                 rpass.draw(start..end, range.0..range.1);
-    //             }
-    //         }
-    //     } else {
-    //         structure.draw(rpass);
-    //     }
-    // }
-
-    // pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, eye: Vec3, distance: f32) {
-    //     let structure = self.structure.borrow();
-    //     let index = self.spherical_to_index(cartesian_to_spherical(&eye));
-
-    //     if let Some(pvs) = self.sets[index].as_ref() {
-    //         for molecule_id in 0..structure.molecules().len() {
-    //             let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
-    //             rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-    //             rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
-
-    //             for i in 0..structure.molecules()[molecule_id].lods().len() {
-    //                 if (i == structure.molecules()[molecule_id].lods().len() - 1)
-    //                     || (distance > structure.molecules()[molecule_id].lods()[i].0
-    //                         && distance < structure.molecules()[molecule_id].lods()[i + 1].0)
-    //                 {
-    //                     let start = structure.molecules()[molecule_id].lods()[i].1.start;
-    //                     let end = structure.molecules()[molecule_id].lods()[i].1.end;
-
-    //                     for range in pvs.visible[molecule_id].iter() {
-    //                         rpass.draw(start..end, range.0..range.1);
-    //                     }
-
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //     } else {
-    //         structure.draw_lod(rpass, distance);
-    //     }
-    // }
+    pub fn ranges_limit(&self) -> usize {
+        self.ranges_limit
+    }
 }
 /// One potentially visible set of field of them.
 #[derive(Clone)]

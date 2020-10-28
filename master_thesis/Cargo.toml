@@ -20,6 +20,7 @@ futures = { version = "0.3" }
 log = "0.4"
 bytemuck = "1"
 env_logger = "0.7.1"
+assert_approx_eq = "1"
 
 # Format loading
 ron = "0.6"

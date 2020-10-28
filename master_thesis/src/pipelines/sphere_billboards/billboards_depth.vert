@@ -20,17 +20,17 @@ layout(location = 1) out vec4 position_clip_space;
 layout(location = 2) out flat float scale;
 layout(location = 3) out flat int instance_index;
 
-const vec2 vertices[3] = {
-    vec2(-0.86, -0.5),
-    vec2(0.86, -0.5),
-    vec2(0.0, 1.0),
-};
-
 // const vec2 vertices[3] = {
-//     vec2(-1.72, -1.0),
-//     vec2(1.72, -1.0),
-//     vec2(0.0, 3.0),
+//     vec2(-0.86, -0.5),
+//     vec2(0.86, -0.5),
+//     vec2(0.0, 1.0),
 // };
+
+const vec2 vertices[3] = {
+    vec2(-1.72, -1.0),
+    vec2(1.72, -1.0),
+    vec2(0.0, 3.0),
+};
 
 void main(void) {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);

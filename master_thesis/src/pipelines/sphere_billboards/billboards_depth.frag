@@ -17,11 +17,11 @@ layout(location = 3) in flat int instance_index;
 layout(early_fragment_tests) in;
 
 void main(void) {
-  // const float len = length(uv);
+  const float len = length(uv);
 
-  // if (length(uv) > scale) {
-  //   discard;
-  // }
+  if (length(uv) > scale) {
+    discard;
+  }
 
 #ifdef WRITE_VISIBILITY
   fragments[instance_index] = 1;

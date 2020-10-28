@@ -1,11 +1,11 @@
 use bytemuck::*;
 use nalgebra_glm as glm;
-use std::f32::consts::PI;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 use winit;
 
-const TAU: f32 = 2.0 * PI;
+use crate::*;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct CameraUbo {
@@ -39,12 +39,11 @@ pub trait Camera {
     fn speed(&self) -> f32;
     fn set_speed(&mut self, speed: f32);
 }
-
 pub struct RotationCamera {
-    ubo: CameraUbo,
+    pub ubo: CameraUbo,
 
-    yaw: f32,
-    pitch: f32,
+    yaw: f64,
+    pitch: f64,
     distance: f32,
 
     speed: f32,
@@ -62,7 +61,10 @@ impl RotationCamera {
         distance: f32,
         speed: f32,
     ) -> RotationCamera {
-        let eye = distance * glm::vec3(distance, 0.0, 0.0);
+        let yaw = 0.0f64;
+        let pitch = 90.0f64.to_radians();
+
+        let eye = distance * glm::vec3(1.0, 0.0, 0.0);
         let view = glm::look_at(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         let projection_view = projection * view;
         let position = glm::vec4(eye[0], eye[1], eye[2], 1.0);
@@ -96,8 +98,8 @@ impl RotationCamera {
         RotationCamera {
             ubo,
 
-            yaw: 0.0,
-            pitch: 0.0,
+            yaw,
+            pitch,
 
             distance,
             speed,
@@ -109,19 +111,15 @@ impl RotationCamera {
         }
     }
 
-    pub fn eye(&self) -> glm::Vec3 {
-        self.distance * self.direction_vector()
+    pub fn eye(&self) -> glm::TVec3<f64> {
+        self.distance as f64 * self.direction_vector()
     }
 
-    pub fn direction_vector(&self) -> glm::Vec3 {
+    pub fn direction_vector(&self) -> glm::TVec3<f64> {
         let yaw = self.yaw;
         let pitch = self.pitch;
 
-        glm::vec3(
-            yaw.cos() * pitch.cos(),
-            pitch.sin(),
-            yaw.sin() * pitch.cos(),
-        )
+        spherical_to_cartesian(&vec2(yaw, pitch))
     }
 
     pub fn distance(&self) -> f32 {
@@ -132,34 +130,37 @@ impl RotationCamera {
         self.distance = distance;
     }
 
-    pub fn yaw(&self) -> f32 {
+    pub fn yaw(&self) -> f64 {
         self.yaw
     }
 
-    pub fn set_yaw(&mut self, yaw: f32) {
-        assert!(yaw >= 0.0);
-        assert!(yaw <= TAU);
+    pub fn set_yaw(&mut self, yaw: f64) {
+        // assert!(yaw >= 0.0);
+        // assert!(yaw <= TAU);
 
         self.yaw = yaw;
     }
 
-    pub fn add_yaw(&mut self, yaw_delta: f32) {
-        self.set_yaw(((self.yaw + yaw_delta % TAU) + TAU) % TAU);
+    pub fn add_yaw(&mut self, yaw_delta: f64) {
+        self.set_yaw(self.yaw + yaw_delta);
     }
 
-    pub fn pitch(&self) -> f32 {
+    pub fn pitch(&self) -> f64 {
         self.pitch
     }
 
-    pub fn set_pitch(&mut self, pitch: f32) {
-        assert!(pitch >= 0.0);
-        assert!(pitch <= TAU);
+    pub fn set_pitch(&mut self, pitch: f64) {
+        // assert!(pitch >= 0.0);
+        // assert!(pitch <= TAU);
 
         self.pitch = pitch;
     }
 
-    pub fn add_pitch(&mut self, pitch_delta: f32) {
-        self.set_pitch(((self.pitch + pitch_delta % TAU) + TAU) % TAU);
+    pub fn add_pitch(&mut self, pitch_delta: f64) {
+        let result = self.pitch + pitch_delta;
+        if result <= std::f64::consts::PI && result >= 1.0f64 {
+            self.set_pitch(result);
+        }        
     }
 }
 
@@ -188,8 +189,8 @@ impl Camera for RotationCamera {
         match event {
             winit::event::DeviceEvent::MouseMotion { delta: (x, y) } => {
                 if self.mouse_pressed {
-                    self.add_yaw(*x as f32 / 100.0);
-                    self.add_pitch(*y as f32 / 100.0);
+                    self.add_yaw(*x as f64 / 100.0f64);
+                    self.add_pitch(*y as f64 / 100.0f64);
                 }
             }
             _ => {}
@@ -202,8 +203,8 @@ impl Camera for RotationCamera {
     }
 
     fn ubo(&mut self) -> CameraUbo {
-        let eye = self.distance * self.direction_vector();
-        self.ubo.view = glm::look_at(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
+        let eye = vec3(self.eye().x as f32, self.eye().y as f32, self.eye().z as f32);
+        self.ubo.view = glm::look_at_rh(&eye, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
         self.ubo.projection_view = self.ubo.projection * self.ubo.view;
         self.ubo.position = glm::vec4(eye.x, eye.y, eye.z, 1.0);
 

@@ -13,7 +13,7 @@ float ScreenSpaceToViewSpaceDepth(float depth)
     return depthLinearizeMul / (depthLinearizeAdd - depth);
 }
 
-layout(location = 0) in vec2 uv;
+layout(location = 0) in vec2 uv_input;
 
 layout(set = 0, binding = 0) uniform sampler linear_sampler;
 
@@ -26,6 +26,7 @@ layout(set = 0, binding = 5) uniform utexture2D input_instance;
 layout(location = 0) out vec4 output_color;
 
 void main() {
+    vec2 uv = vec2(uv_input.x, 1.0 - uv_input.y);
     const vec3 color = texture(sampler2D(input_color, linear_sampler), uv).rgb;
     const float ao1 = texture(sampler2D(input_ao1, linear_sampler), uv).r;
     const float ao2 = texture(sampler2D(input_ao2, linear_sampler), uv).r;

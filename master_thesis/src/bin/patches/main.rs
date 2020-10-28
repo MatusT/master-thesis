@@ -5,6 +5,7 @@ use master_thesis::pipelines::SphereBillboardsPipeline;
 use master_thesis::pvs::*;
 use master_thesis::ssao;
 use master_thesis::structure::*;
+use master_thesis::*;
 
 use bytemuck::cast_slice;
 use futures::task::LocalSpawn;
@@ -25,6 +26,11 @@ struct ApplicationState {
     pub ssao_settings: [ssao::Settings; 2],
     pub ssao_modifying: usize,
     pub ssao_parameter: u32,
+
+    pub fog_modifying: bool,
+    pub fog_distance: f32,
+
+    pub render_mode: u32,
 }
 
 pub struct Application {
@@ -47,12 +53,15 @@ pub struct Application {
 
     pvs_module: Rc<StructurePvsModule>,
 
-    covid: Rc<RefCell<Structure>>,
-    covid_pvs: StructurePvsField,
-    covid_rotations: Vec<Mat4>,
-    covid_translations: Vec<Mat4>,
-    covid_transforms_gpu: Buffer,
-    covid_transforms_bgs: Vec<BindGroup>,
+    structures: Vec<Rc<RefCell<Structure>>>,
+    structures_bgs: Vec<Vec<BindGroup>>,
+    structures_pvs: Vec<StructurePvsField>,
+
+    /// (Structure Index in `structure` array, Translation, Rotation)
+    structures_transforms: Vec<(usize, Mat4, Mat4)>,
+
+    structures_transforms_gpu: Buffer,
+    structures_transforms_bg: BindGroup,
 
     ssao_module: ssao::SsaoModule,
     ssao_finals: [TextureView; 2],
@@ -61,7 +70,6 @@ pub struct Application {
     output_bind_group: BindGroup,
 
     reduce: u32,
-    recompute_pvs: bool,
 }
 
 impl framework::ApplicationStructure for Application {
@@ -133,56 +141,59 @@ impl framework::ApplicationStructure for Application {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                        dynamic: true,
                         min_binding_size: None,
                     },
                     count: None,
                 }],
             });
+        // Data
+        let args: Vec<String> = std::env::args().collect();
+
+        let mut structures = Vec::new();
+        let mut structures_bgs = Vec::new();
+        for path in args[1..].iter() {
+            let (structure, structure_bgs) = Structure::from_ron_with_bgs(
+                &device,
+                path,
+                &per_molecule_bind_group_layout,
+            );
+
+            structures.push(Rc::new(RefCell::new(structure)));
+            structures_bgs.push(structure_bgs)
+        }
+
+        let mut colors: std::collections::HashMap<String, Vec<f32>> =
+            ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
+                .expect("Unable to load colors.");
+
+        for structure in structures.iter_mut() {
+            for molecule in structure.borrow_mut().molecules_mut() {
+                if let Some(color) = colors.get_mut(molecule.name()) {
+                    for channel in color.iter_mut() {
+                        if *channel > 1.0 {
+                            *channel = *channel / 255.0;
+                        }
+                    }
+                    molecule.set_color(&vec3(color[0], color[1], color[2]));
+                }
+            }
+        }
 
         // Camera
+        let r = structures[0].borrow().bounding_radius();
         let mut camera = RotationCamera::new(
             &device,
             &camera_bind_group_layout,
+            // &ortho_rh_zo(-r, r, -r, r, 0.0, 2.0 * r),
             &reversed_infinite_perspective_rh_zo(
                 sc_desc.width as f32 / sc_desc.height as f32,
                 0.785398163,
                 0.1,
             ),
-            1500.0,
+            r,
             100.0,
         );
-
-        // Data
-        let args: Vec<String> = std::env::args().collect();
-
-        let mut covid = Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout);
-
-        for molecule in covid.molecules_mut() {
-            println!("Molecule {}", molecule.name());
-            let new_color = match molecule.name() {
-                "S" => vec3(0.60, 0.0, 0.0),
-                // "S" => vec3(0.0, 0.93, 1.0),
-                "E" => vec3(1.0, 1.0, 1.0),
-                "M" => vec3(1.0, 1.0, 1.0),
-                "NTD" => vec3(1.0, 1.0, 1.0),
-                "CTD" => vec3(1.0, 1.0, 1.0),
-                "FLUID_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
-                "FLUID_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
-                "CRYSTALL_CUT_SINGLE" => vec3(1.0, 1.0, 1.0),
-                "CRYSTALL_CUT_SINGLE2" => vec3(1.0, 1.0, 1.0),
-                "P" => vec3(1.0, 1.0, 1.0),
-                "G" => vec3(1.0, 1.0, 1.0),
-                "C" => vec3(1.0, 1.0, 1.0),
-                "A" => vec3(1.0, 1.0, 1.0),
-                "U" => vec3(1.0, 1.0, 1.0),
-                _ => vec3(1.0, 1.0, 1.0),
-            };
-
-            molecule.set_color(&new_color);
-        }
-
-        let covid = Rc::new(covid);
 
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(
@@ -262,39 +273,56 @@ impl framework::ApplicationStructure for Application {
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let output_texture = device.create_texture(&TextureDescriptor {
-            label: None,
-            size: Extent3d {
-                width,
-                height,
-                depth: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsage::SAMPLED | TextureUsage::OUTPUT_ATTACHMENT,
-        });
-        let output_texture_view =
-            output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_texture = device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsage::OUTPUT_ATTACHMENT
+                    | TextureUsage::SAMPLED
+                    | TextureUsage::STORAGE,
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let pvs_module = Rc::new(StructurePvsModule::new(
             &device,
+            width,
+            height,
+            ortho_rh_zo(-r, r, -r, r, 0.0, 2.0 * r),
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let mut covid_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 2, 1024);
 
-        let covid_rotations = vec![rotation(0.0, &vec3(0.0, 1.0, 0.0))];
-        let covid_translations = vec![translation(&vec3(0.0, 0.0, 0.0))];
+        let reduce = 128u32;
+        let structures_pvs = structures
+            .iter()
+            .map(|structure| {
+                pvs_module.pvs_field(&device, &camera_bind_group_layout, structure.clone(), 5, reduce as usize)
+            })
+            .collect();
 
-        println!("Amount of structures: {}", covid_translations.len());
+        let n = 1;
+        let n3 = n * n * n;
 
-        let covid_transforms_gpu = {
+        let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
+        let structure_rand = rand_distr::Uniform::from(0..structures.len());
+        for _ in 0..n3 {
+            let structure_id = structure_rand.sample(&mut rand::thread_rng());
+
+            structures_transforms.push((structure_id, Mat4::identity(), Mat4::identity()));
+        }
+
+        let structures_transforms_gpu = {
             let mut raw: Vec<f32> = Vec::new();
-            for (translation, rotation) in covid_translations.iter().zip(covid_rotations.iter()) {
-                let transform: Mat4 = translation * rotation;
+            for (_, translation, rotation) in structures_transforms.iter() {
+                let transform: Mat4 = (*translation) * (*rotation);
                 raw.extend_from_slice(transform.as_slice());
                 raw.extend_from_slice(&[0.0; 48]);
             }
@@ -305,22 +333,18 @@ impl framework::ApplicationStructure for Application {
             })
         };
 
-        let mut covid_transforms_bgs = Vec::new();
-        for i in 0..covid_translations.len() {
-            let i = i as u64;
-            covid_transforms_bgs.push(device.create_bind_group(&BindGroupDescriptor {
-                label: None,
-                layout: &per_structure_bind_group_layout,
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer {
-                        buffer: &covid_transforms_gpu,
-                        offset: i * 256,
-                        size: std::num::NonZeroU64::new(256),
-                    },
-                }],
-            }));
-        }
+        let structures_transforms_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &per_structure_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer {
+                    buffer: &structures_transforms_gpu,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(256),
+                },
+            }],
+        });
 
         let ssao_module = ssao::SsaoModule::new(&device, width, height);
         let ssao_finals = [
@@ -360,8 +384,6 @@ impl framework::ApplicationStructure for Application {
                 .create_view(&TextureViewDescriptor::default()),
         ];
 
-        println!("SSAO finals done");
-
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
 
@@ -377,11 +399,11 @@ impl framework::ApplicationStructure for Application {
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: ShaderStage::FRAGMENT,
+                        visibility: ShaderStage::all(),
                         ty: BindingType::SampledTexture {
-                            multisampled: false,
-                            component_type: TextureComponentType::Float,
                             dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -433,7 +455,7 @@ impl framework::ApplicationStructure for Application {
             bind_group_layouts: &[&output_bind_group_layout],
             push_constant_ranges: &[PushConstantRange {
                 stages: ShaderStage::FRAGMENT,
-                range: 0..12,
+                range: 0..16,
             }],
         });
 
@@ -474,8 +496,6 @@ impl framework::ApplicationStructure for Application {
             alpha_to_coverage_enabled: false,
         });
 
-        println!("Output pipeline done");
-
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
@@ -483,18 +503,6 @@ impl framework::ApplicationStructure for Application {
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
             mipmap_filter: FilterMode::Linear,
-            lod_min_clamp: 0.0,
-            lod_max_clamp: std::f32::MAX,
-            ..Default::default()
-        });
-
-        let integer_sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            mag_filter: FilterMode::Nearest,
-            min_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: std::f32::MAX,
             ..Default::default()
@@ -510,7 +518,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&output_texture_view),
+                    resource: BindingResource::TextureView(&output_texture),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -531,8 +539,6 @@ impl framework::ApplicationStructure for Application {
             ],
         });
 
-        println!("Output bind group done");
-
         let state = ApplicationState {
             draw_lod: false,
             draw_occluded: true,
@@ -540,7 +546,7 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: 2.0 * covid.bounding_radius(),
+                    radius: 30000.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -564,11 +570,14 @@ impl framework::ApplicationStructure for Application {
             ],
             ssao_modifying: 0,
             ssao_parameter: 0,
+
+            fog_modifying: false,
+            fog_distance: 50000.0,
+
+            render_mode: 0,
         };
 
         let start_time = Instant::now();
-
-        println!("Initialization is done.");
 
         Self {
             width,
@@ -581,7 +590,7 @@ impl framework::ApplicationStructure for Application {
             multisampled_texture,
             normals_texture,
             instance_texture,
-            output_texture: output_texture_view,
+            output_texture,
 
             camera,
             camera_bind_group_layout,
@@ -590,12 +599,12 @@ impl framework::ApplicationStructure for Application {
 
             pvs_module: pvs_module.clone(),
 
-            covid: covid.clone(),
-            covid_pvs,
-            covid_rotations,
-            covid_translations,
-            covid_transforms_gpu,
-            covid_transforms_bgs,
+            structures,
+            structures_bgs,
+            structures_pvs,
+            structures_transforms,
+            structures_transforms_gpu,
+            structures_transforms_bg,
 
             ssao_module,
             ssao_finals,
@@ -603,8 +612,7 @@ impl framework::ApplicationStructure for Application {
             output_pipeline,
             output_bind_group,
 
-            reduce: 1024,
-            recompute_pvs: false,
+            reduce,
         }
     }
 
@@ -636,56 +644,99 @@ impl framework::ApplicationStructure for Application {
                             VirtualKeyCode::O => {
                                 self.state.draw_occluded = !self.state.draw_occluded;
                             }
+                            VirtualKeyCode::C => {
+                                let mut colors: std::collections::HashMap<String, Vec<f32>> =
+                                    ron::de::from_str(
+                                        &std::fs::read_to_string("colors.ron").unwrap(),
+                                    )
+                                    .expect("Unable to load colors.");
+
+                                for structure in self.structures.iter_mut() {
+                                    for molecule in structure.borrow_mut().molecules_mut() {
+                                        if let Some(color) = colors.get_mut(molecule.name()) {
+                                            for channel in color.iter_mut() {
+                                                if *channel > 1.0 {
+                                                    *channel = *channel / 255.0;
+                                                }
+                                            }
+                                            molecule.set_color(&vec3(color[0], color[1], color[2]));
+                                        }
+                                    }
+                                }
+                            }
+                            VirtualKeyCode::F => {
+                                self.state.fog_modifying = !self.state.fog_modifying;
+                                changed = true;
+                            }
                             VirtualKeyCode::Key1 => {
                                 self.state.ssao_modifying = 0;
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Key2 => {
                                 self.state.ssao_modifying = 1;
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Add => {
-                                self.state.ssao_settings[self.state.ssao_modifying]
-                                    .add(self.state.ssao_parameter);
+                                if self.state.fog_modifying {
+                                    self.state.fog_distance += 100.0;
+                                } else {
+                                    self.state.ssao_settings[self.state.ssao_modifying]
+                                        .add(self.state.ssao_parameter);
+                                }
                                 changed = true;
                             }
                             VirtualKeyCode::Subtract => {
-                                self.state.ssao_settings[self.state.ssao_modifying]
-                                    .sub(self.state.ssao_parameter);
+                                if self.state.fog_modifying {
+                                    self.state.fog_distance -= 100.0;
+                                } else {
+                                    self.state.ssao_settings[self.state.ssao_modifying]
+                                        .sub(self.state.ssao_parameter);
+                                }
                                 changed = true;
                             }
                             VirtualKeyCode::Up => {
                                 self.state.ssao_parameter -=
                                     if self.state.ssao_parameter == 0 { 0 } else { 1 };
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::Down => {
                                 self.state.ssao_parameter +=
                                     if self.state.ssao_parameter == 5 { 0 } else { 1 };
                                 changed = true;
+                                self.state.fog_modifying = false;
                             }
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
                             }
+                            VirtualKeyCode::S => {
+                                self.state.render_mode = (self.state.render_mode + 1) % 3;
+                            }
                             VirtualKeyCode::R => {
-                                let rotation = self.covid_rotations[0].fixed_slice::<U3, U3>(0, 0);
-                                let position = self.covid_translations[0].column(3).xyz();
-                                let direction = rotation.try_inverse().unwrap()
-                                    * normalize(&(self.camera.eye() - position));
+                                let eye = self.camera.eye();
+                                let eye = vec3(eye.x as f32, eye.y as f32, eye.z as f32);
+                    
+                                let rotation = self.structures_transforms[0].2.fixed_slice::<U3, U3>(0, 0);
+                                let position = self.structures_transforms[0].1.column(3).xyz();
+                    
+                                let direction =
+                                    rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
                                 // Calculate number of culled molecules
                                 let mut total_molecules = 0u32;
                                 let mut visible_molecules = 0u32;
-                                if let Some(set) = self.covid_pvs.get_from_eye(direction) {
+                                if let Some(set) = self.structures_pvs[0].get_from_eye(direction) {
                                     for (molecule_index, ranges) in set.visible.iter().enumerate() {
                                         total_molecules +=
-                                            self.covid.transforms()[molecule_index].1 as u32;
+                                            self.structures[0].borrow().transforms()[molecule_index].1 as u32;
                                         for range in ranges {
                                             visible_molecules += (range.1 - range.0) as u32;
                                         }
                                     }
                                 }
-                                // println!("{}/{} = {}", visible_molecules, total_molecules, (visible_molecules as f32 / total_molecules as f32) * 100.0);
+
                                 println!(
                                     "({}, {})",
                                     self.reduce,
@@ -697,8 +748,16 @@ impl framework::ApplicationStructure for Application {
                                 } else {
                                     self.reduce -= 16;
                                 }
-                                self.recompute_pvs = true;
                             }
+                            VirtualKeyCode::P => {
+                                self.camera.set_projection(&perspective_rh_zo(
+                                    self.width as f32 / self.height as f32,
+                                    0.785398163,
+                                    0.1,
+                                    10000.0,
+                                ));
+                                self.camera.set_distance(self.structures[0].borrow().bounding_radius() * 3.0);
+                            },
                             _ => {}
                         };
                     }
@@ -771,6 +830,12 @@ impl framework::ApplicationStructure for Application {
                 },
                 self.state.ssao_settings[self.state.ssao_modifying].radius,
             );
+
+            println!(
+                "[{}] Fog: {}",
+                if self.state.fog_modifying { "*" } else { " " },
+                self.state.fog_distance,
+            );
         }
     }
 
@@ -788,64 +853,60 @@ impl framework::ApplicationStructure for Application {
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
-        // Rotate the structure
-        // for r in self.covid_rotations.iter_mut() {
-        //     *r = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (*r);
-        // }
+        //================== DATA UPLOAD
+        if self.state.animating {
+            self.camera.set_distance(self.camera.distance() - 30.0);
+        }
+        self.camera.update_gpu(queue);
 
-        if self.recompute_pvs {
-            self.covid_pvs = self.pvs_module.pvs_field(
+        if self.reduce as usize != self.structures_pvs[0].ranges_limit() {
+            self.structures_pvs[0] = self.pvs_module.pvs_field(
                 &device,
                 &self.camera_bind_group_layout,
-                self.covid.clone(),
+                self.structures[0].clone(),
                 5,
                 self.reduce as usize,
             );
-            self.recompute_pvs = false;
-            println!("{}", self.reduce);
         }
 
-        //================== DATA UPLOAD
-        self.camera.update_gpu(queue);
-
-        let culler = FrustrumCuller::from_matrix(self.camera.ubo().projection_view);
-
-        let mut covid_transforms_f32: Vec<f32> = Vec::new();
-        for (translation, rotation) in self
-            .covid_translations
-            .iter()
-            .zip(self.covid_rotations.iter())
-        {
+        let mut structures_transforms_f32: Vec<f32> = Vec::new();
+        for (_, translation, rotation) in self.structures_transforms.iter() {
             let transform: Mat4 = translation * rotation;
-            covid_transforms_f32.extend_from_slice(transform.as_slice());
-            covid_transforms_f32.extend_from_slice(&[0.0; 48]);
+            structures_transforms_f32.extend_from_slice(transform.as_slice());
+            structures_transforms_f32.extend_from_slice(&[0.0; 48]);
         }
 
         queue.write_buffer(
-            &self.covid_transforms_gpu,
+            &self.structures_transforms_gpu,
             0,
-            cast_slice(&covid_transforms_f32),
+            cast_slice(&structures_transforms_f32),
         );
 
+        //================== DATA UPLOAD
         let mut computed_count = 0;
-        for i in 0..self.covid_rotations.len() {
-            if computed_count > 6 {
-                break;
+        for i in 0..self.structures_transforms.len() {
+            if computed_count > 2 {
+                continue;
             }
 
-            let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
-            let position = self.covid_translations[i].column(3).xyz();
+            let eye = self.camera.eye();
+            let eye = vec3(eye.x as f32, eye.y as f32, eye.z as f32);
+
+            let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
+            let position = self.structures_transforms[i].1.column(3).xyz();
+
             let direction =
-                rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
+                rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
             if futures::executor::block_on(
-                self.covid_pvs.compute_from_eye(device, queue, direction),
+                self.structures_pvs[0]
+                    .compute_from_eye(device, queue, vec3(direction.x as f64, direction.y as f64, direction.z as f64)),
             ) {
                 computed_count += 1;
             }
-
             if futures::executor::block_on(
-                self.covid_pvs.compute_from_eye(device, queue, -direction),
+                self.structures_pvs[0]
+                    .compute_from_eye(device, queue, -vec3(direction.x as f64, direction.y as f64, direction.z as f64)),
             ) {
                 computed_count += 1;
             }
@@ -854,8 +915,7 @@ impl framework::ApplicationStructure for Application {
         //================== RENDER MOLECULES
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        {
-            let structure = self.covid.borrow();
+        {      
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
@@ -889,34 +949,29 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
-            for i in 0..self.covid_translations.len() {
-                let rotation = self.covid_rotations[i].fixed_slice::<U3, U3>(0, 0);
-                let position = self.covid_translations[i].column(3).xyz();
+            for i in 0..self.structures_transforms.len() {
+                let structure_id = self.structures_transforms[i].0;
+                let structure = self.structures[structure_id].borrow();
+                let structure_pvs = &self.structures_pvs[structure_id];
 
-                if !culler.test_sphere(vec4(
-                    position.x,
-                    position.y,
-                    position.z,
-                    structure.bounding_radius(),
-                )) {
-                    continue;
-                }
+                let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
+                let position = self.structures_transforms[i].1.column(3).xyz();
 
-                let direction = self.camera.eye() - position;
-                let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+                let direction = vec3(self.camera.eye().x as f32, self.camera.eye().y as f32, self.camera.eye().z as f32) - position;
+                let direction_norm_rot =
+                    rotation.try_inverse().unwrap() * normalize(&direction);
                 let distance = direction.magnitude();
 
-                rpass.set_bind_group(2, &self.covid_transforms_bgs[i], &[]);
+                rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
 
-                let draw_occluded = self.state.draw_occluded
-                    || direction.magnitude() < structure.bounding_radius() * 1.5;
+                let draw_occluded = self.state.draw_occluded;
                 let draw_lod = self.state.draw_lod;
 
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {
                     // Bind its data
-                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
+                    rpass.set_bind_group(1, &self.structures_bgs[structure_id][molecule_id], &[]);
 
                     // Set its colors
                     let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
@@ -950,7 +1005,8 @@ impl framework::ApplicationStructure for Application {
 
                     // IF !draw_occluded && PVS is available -> iterate only over visible parts
                     if !draw_occluded {
-                        if let Some(pvs) = self.covid_pvs.get_from_eye(direction_norm_rot) {
+                        if let Some(pvs) = structure_pvs.get_from_eye(direction_norm_rot)
+                        {
                             for range in pvs.visible[molecule_id].iter() {
                                 rpass.draw(start..end, range.0..range.1);
                             }
@@ -961,7 +1017,7 @@ impl framework::ApplicationStructure for Application {
                     rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
-        }
+        }        
         queue.submit(Some(encoder.finish()));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -1014,7 +1070,12 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(
                 ShaderStage::FRAGMENT,
                 0,
-                cast_slice(&[depth_unpack_mul, depth_unpack_add, 10000.0]),
+                cast_slice(&[depth_unpack_mul, depth_unpack_add, self.state.fog_distance]),
+            );
+            rpass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                12,
+                cast_slice(&[self.state.render_mode]),
             );
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);

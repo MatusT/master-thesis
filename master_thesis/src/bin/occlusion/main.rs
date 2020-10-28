@@ -51,11 +51,12 @@ pub struct Application {
 
     pvs_module: Rc<StructurePvsModule>,
 
-    structure: Rc<RefCell<Structure>>,
-    structures_pvs: StructurePvsField,
+    structures: Vec<Rc<RefCell<Structure>>>,
+    structures_bgs: Vec<Vec<BindGroup>>,
+    structures_pvs: Vec<StructurePvsField>,
 
-    /// (Translation, Rotation)
-    structures_transforms: Vec<(Mat4, Mat4)>,
+    /// (Structure Index in `structure` array, Translation, Rotation)
+    structures_transforms: Vec<(usize, Mat4, Mat4)>,
 
     structures_transforms_gpu: Buffer,
     structures_transforms_bg: BindGroup,
@@ -152,30 +153,42 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            6.0 * 1500.0,
+            40000.0,
             100.0,
         );
 
         // Data
         let args: Vec<String> = std::env::args().collect();
 
-        let mut covid = Structure::from_ron(&device, &args[1], &per_molecule_bind_group_layout);
+        let mut structures = Vec::new();
+        let mut structures_bgs = Vec::new();
+        for path in args[1..].iter() {
+            let (structure, structure_bgs) = Structure::from_ron_with_bgs(
+                &device,
+                path,
+                &per_molecule_bind_group_layout,
+            );
+
+            structures.push(Rc::new(RefCell::new(structure)));
+            structures_bgs.push(structure_bgs)
+        }
 
         let mut colors: std::collections::HashMap<String, Vec<f32>> =
             ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
                 .expect("Unable to load colors.");
-        for molecule in covid.molecules_mut() {
-            if let Some(color) = colors.get_mut(molecule.name()) {
-                for channel in color.iter_mut() {
-                    if *channel > 1.0 {
-                        *channel = *channel / 255.0;
+
+        for structure in structures.iter_mut() {
+            for molecule in structure.borrow_mut().molecules_mut() {
+                if let Some(color) = colors.get_mut(molecule.name()) {
+                    for channel in color.iter_mut() {
+                        if *channel > 1.0 {
+                            *channel = *channel / 255.0;
+                        }
                     }
+                    molecule.set_color(&vec3(color[0], color[1], color[2]));
                 }
-                molecule.set_color(&vec3(color[0], color[1], color[2]));
             }
         }
-
-        let covid = Rc::new(RefCell::new(covid));
 
         // Pipelines
         let billboards_pipeline = SphereBillboardsPipeline::new(
@@ -278,19 +291,25 @@ impl framework::ApplicationStructure for Application {
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let structures_pvs =
-            pvs_module.pvs_field(&device, &camera_bind_group_layout, covid.clone(), 5, 96);
-        
-        let n = 5;
+        let structures_pvs = structures
+            .iter()
+            .map(|structure| {
+                pvs_module.pvs_field(&device, &camera_bind_group_layout, structure.clone(), 10, 96)
+            })
+            .collect();
+
+        let n = 10;
         let n3 = n * n * n;
 
-        let mut structures_transforms: Vec<(Mat4, Mat4)> = Vec::new();
+        let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
+        let structure_rand = rand_distr::Uniform::from(0..structures.len());
         for i in 0..n3 {
+            let structure_id = structure_rand.sample(&mut rand::thread_rng());
             let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
 
             let rotation: Mat4 = rotation((i as f32).to_radians(), &vec3(0.0, 1.0, 0.0));
 
-            let radius = covid.borrow_mut().bounding_radius();
+            let radius = structures[structure_id].borrow_mut().bounding_radius();
             let position = vec3(
                 x * radius * 2.0 * n as f32,
                 y * radius * 2.0 * n as f32,
@@ -298,14 +317,14 @@ impl framework::ApplicationStructure for Application {
             );
             let translation = translation(&position);
 
-            structures_transforms.push((translation, rotation));
+            structures_transforms.push((structure_id, translation, rotation));
         }
 
         println!("Amount of structures: {}", structures_transforms.len());
 
         let structures_transforms_gpu = {
             let mut raw: Vec<f32> = Vec::new();
-            for (translation, rotation) in structures_transforms.iter() {
+            for (_, translation, rotation) in structures_transforms.iter() {
                 let transform: Mat4 = (*translation) * (*rotation);
                 raw.extend_from_slice(transform.as_slice());
                 raw.extend_from_slice(&[0.0; 48]);
@@ -530,7 +549,7 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: covid.borrow_mut().bounding_radius() * 8.0,
+                    radius: 30000.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -556,7 +575,7 @@ impl framework::ApplicationStructure for Application {
             ssao_parameter: 0,
 
             fog_modifying: false,
-            fog_distance: 10000.0,
+            fog_distance: 50000.0,
 
             render_mode: 0,
         };
@@ -582,7 +601,8 @@ impl framework::ApplicationStructure for Application {
 
             pvs_module: pvs_module.clone(),
 
-            structure: covid.clone(),
+            structures,
+            structures_bgs,
             structures_pvs,
             structures_transforms,
             structures_transforms_gpu,
@@ -630,14 +650,17 @@ impl framework::ApplicationStructure for Application {
                                         &std::fs::read_to_string("colors.ron").unwrap(),
                                     )
                                     .expect("Unable to load colors.");
-                                for molecule in self.structure.borrow_mut().molecules_mut() {
-                                    if let Some(color) = colors.get_mut(molecule.name()) {
-                                        for channel in color.iter_mut() {
-                                            if *channel > 1.0 {
-                                                *channel = *channel / 255.0;
+
+                                for structure in self.structures.iter_mut() {
+                                    for molecule in structure.borrow_mut().molecules_mut() {
+                                        if let Some(color) = colors.get_mut(molecule.name()) {
+                                            for channel in color.iter_mut() {
+                                                if *channel > 1.0 {
+                                                    *channel = *channel / 255.0;
+                                                }
                                             }
+                                            molecule.set_color(&vec3(color[0], color[1], color[2]));
                                         }
-                                        molecule.set_color(&vec3(color[0], color[1], color[2]));
                                     }
                                 }
                             }
@@ -766,11 +789,7 @@ impl framework::ApplicationStructure for Application {
 
             println!(
                 "[{}] Fog: {}",
-                if self.state.fog_modifying{
-                    "*"
-                } else {
-                    " "
-                },
+                if self.state.fog_modifying { "*" } else { " " },
                 self.state.fog_distance,
             );
         }
@@ -792,7 +811,7 @@ impl framework::ApplicationStructure for Application {
 
         // Rotate the structure
         for r in self.structures_transforms.iter_mut() {
-            r.1 = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (r.1);
+            r.2 = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (r.2);
         }
 
         //================== DATA UPLOAD
@@ -804,10 +823,7 @@ impl framework::ApplicationStructure for Application {
         let culler = FrustrumCuller::from_matrix(self.camera.ubo().projection_view);
 
         let mut structures_transforms_f32: Vec<f32> = Vec::new();
-        for (translation, rotation) in self
-            .structures_transforms
-            .iter()
-        {
+        for (_, translation, rotation) in self.structures_transforms.iter() {
             let transform: Mat4 = translation * rotation;
             structures_transforms_f32.extend_from_slice(transform.as_slice());
             structures_transforms_f32.extend_from_slice(&[0.0; 48]);
@@ -826,13 +842,14 @@ impl framework::ApplicationStructure for Application {
                 continue;
             }
 
-            let rotation = self.structures_transforms[i].1.fixed_slice::<U3, U3>(0, 0);
-            let position = self.structures_transforms[i].0.column(3).xyz();
+            let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
+            let position = self.structures_transforms[i].1.column(3).xyz();
             let direction =
                 rotation.try_inverse().unwrap() * normalize(&(self.camera.eye() - position));
 
             if futures::executor::block_on(
-                self.structures_pvs.compute_from_eye(device, queue, direction),
+                self.structures_pvs[self.structures_transforms[i].0]
+                    .compute_from_eye(device, queue, direction),
             ) {
                 computed_count += 1;
             }
@@ -841,8 +858,7 @@ impl framework::ApplicationStructure for Application {
         //================== RENDER MOLECULES
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
-        {
-            let structure = self.structure.borrow();
+        {      
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
@@ -877,8 +893,12 @@ impl framework::ApplicationStructure for Application {
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
             for i in 0..self.structures_transforms.len() {
-                let rotation = self.structures_transforms[i].1.fixed_slice::<U3, U3>(0, 0);
-                let position = self.structures_transforms[i].0.column(3).xyz();
+                let structure_id = self.structures_transforms[i].0;
+                let structure = self.structures[structure_id].borrow();
+                let structure_pvs = &self.structures_pvs[structure_id];
+
+                let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
+                let position = self.structures_transforms[i].1.column(3).xyz();
 
                 if !culler.test_sphere(vec4(
                     position.x,
@@ -890,7 +910,8 @@ impl framework::ApplicationStructure for Application {
                 }
 
                 let direction = self.camera.eye() - position;
-                let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+                let direction_norm_rot =
+                    rotation.try_inverse().unwrap() * normalize(&direction);
                 let distance = direction.magnitude();
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
@@ -903,7 +924,7 @@ impl framework::ApplicationStructure for Application {
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {
                     // Bind its data
-                    rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
+                    rpass.set_bind_group(1, &self.structures_bgs[structure_id][molecule_id], &[]);
 
                     // Set its colors
                     let color: [f32; 3] = structure.molecules()[molecule_id].color().into();
@@ -937,7 +958,8 @@ impl framework::ApplicationStructure for Application {
 
                     // IF !draw_occluded && PVS is available -> iterate only over visible parts
                     if !draw_occluded {
-                        if let Some(pvs) = self.structures_pvs.get_from_eye(direction_norm_rot) {
+                        if let Some(pvs) = structure_pvs.get_from_eye(direction_norm_rot)
+                        {
                             for range in pvs.visible[molecule_id].iter() {
                                 rpass.draw(start..end, range.0..range.1);
                             }
@@ -948,7 +970,7 @@ impl framework::ApplicationStructure for Application {
                     rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
-        }
+        }        
         queue.submit(Some(encoder.finish()));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });

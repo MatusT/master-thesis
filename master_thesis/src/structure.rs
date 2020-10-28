@@ -212,6 +212,118 @@ impl Structure {
             bounding_radius,
         }
     }
+    
+    pub fn from_ron_with_bgs<P: AsRef<std::path::Path>>(
+        device: &Device,
+        path: P,
+        per_molecule_bind_group_layout: &BindGroupLayout,
+    ) -> (Self, Vec<BindGroup>) {
+        let structure_file = rpdb::structure::Structure::from_ron(&path);
+
+        let mut molecules = Vec::new();
+
+        let mut transforms = Vec::new();
+        let mut transforms_sides = Vec::new();
+
+        let mut bind_groups = Vec::new();
+        let mut return_bind_groups = Vec::new();
+
+        let mut bounding_radius: f32 = 0.0;
+
+        for (molecule_name, molecule_model_matrices) in structure_file.molecules {
+            let new_molecule =
+                Molecule::from_ron(device, path.as_ref().with_file_name(molecule_name + ".ron"));
+
+            let hilbert = hilbert::sort_by_hilbert(&molecule_model_matrices);
+            let molecule_model_matrices = hilbert.0;
+            let molecule_model_matrices_len = molecule_model_matrices.len();
+            let molecule_model_matrices = {
+                let mut matrices_flat: Vec<f32> = Vec::new();
+                for molecule_model_matrix in molecule_model_matrices {
+                    bounding_radius = bounding_radius.max(
+                        length(&molecule_model_matrix.column(3).xyz())
+                            + new_molecule.bounding_radius,
+                    );
+                    matrices_flat.append(&mut molecule_model_matrix.as_slice().to_owned());
+                }
+
+                matrices_flat
+            };
+
+            transforms.push((
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: cast_slice(&molecule_model_matrices),
+                    usage: BufferUsage::STORAGE,
+                }),
+                molecule_model_matrices_len,
+            ));
+
+            transforms_sides.push(hilbert.2);
+
+            bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &per_molecule_bind_group_layout,
+                entries: (&[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::Buffer {
+                            buffer: &new_molecule.atoms(),
+                            offset: 0,
+                            size: None,
+                        },
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Buffer {
+                            buffer: &transforms.last().unwrap().0,
+                            offset: 0,
+                            size: None,
+                        },
+                    },
+                ]),
+            }));
+
+            return_bind_groups.push(device.create_bind_group(&BindGroupDescriptor {
+                label: None,
+                layout: &per_molecule_bind_group_layout,
+                entries: (&[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::Buffer {
+                            buffer: &new_molecule.atoms(),
+                            offset: 0,
+                            size: None,
+                        },
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Buffer {
+                            buffer: &transforms.last().unwrap().0,
+                            offset: 0,
+                            size: None,
+                        },
+                    },
+                ]),
+            }));
+
+            molecules.push(new_molecule);
+        }
+
+        let bounding_box = BoundingBox {
+            min: vec3(-bounding_radius, -bounding_radius, -bounding_radius),
+            max: vec3(bounding_radius, bounding_radius, bounding_radius),
+        };
+
+        (Self {
+            molecules,
+            transforms,
+            transforms_sides: Some(transforms_sides),
+            bind_groups,
+            bounding_box,
+            bounding_radius,
+        }, return_bind_groups)
+    }
 
     pub fn molecules(&self) -> &[Molecule] {
         &self.molecules
@@ -239,41 +351,5 @@ impl Structure {
 
     pub fn bounding_radius(&self) -> f32 {
         self.bounding_radius
-    }
-
-    pub fn draw<'a>(&'a self, rpass: &mut RenderPass<'a>) {
-        for molecule_id in 0..self.molecules().len() {
-            rpass.set_bind_group(1, &self.bind_groups()[molecule_id], &[]);
-
-            let start = self.molecules()[molecule_id].lods()[0].1.start;
-            let end = self.molecules()[molecule_id].lods()[0].1.end;
-
-            let color: [f32; 3] = self.molecules()[molecule_id].color.into();
-            rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-            rpass.draw(start..end, 0..self.transforms()[molecule_id].1 as u32);
-        }
-    }
-
-    pub fn draw_lod<'a>(&'a self, rpass: &mut RenderPass<'a>, distance: f32) {
-        for molecule_id in 0..self.molecules().len() {
-            rpass.set_bind_group(1, &self.bind_groups()[molecule_id], &[]);
-
-            // Select Its LOD
-            for i in 0..self.molecules()[molecule_id].lods().len() {
-                if (i == self.molecules()[molecule_id].lods().len() - 1)
-                    || (distance > self.molecules()[molecule_id].lods()[i].0
-                        && distance < self.molecules()[molecule_id].lods()[i + 1].0)
-                {
-                    let start = self.molecules()[molecule_id].lods()[i].1.start;
-                    let end = self.molecules()[molecule_id].lods()[i].1.end;
-
-                    let color: [f32; 3] = self.molecules()[molecule_id].color.into();
-                    rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
-                    rpass.draw(start..end, 0..self.transforms()[molecule_id].1 as u32);
-
-                    break;
-                }
-            }
-        }
     }
 }
