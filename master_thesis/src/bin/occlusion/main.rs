@@ -841,7 +841,7 @@ impl framework::ApplicationStructure for Application {
         //================== DATA UPLOAD
         let mut computed_count = 0;
         for i in 0..self.structures_transforms.len() {
-            if computed_count > 10 {
+            if computed_count > 4 {
                 continue;
             }
 
@@ -853,7 +853,7 @@ impl framework::ApplicationStructure for Application {
 
             let direction = rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
-            let start = Instant::now();
+            // let start = Instant::now();
             if futures::executor::block_on(
                 self.structures_pvs[self.structures_transforms[i].0].compute_from_eye(
                     device,
@@ -862,7 +862,7 @@ impl framework::ApplicationStructure for Application {
                 ),
             ) {
                 computed_count += 1;
-                println!("Occlusion time: {}", start.elapsed().as_millis());
+                // println!("Occlusion time: {}", start.elapsed().as_millis());
             }
         }
 

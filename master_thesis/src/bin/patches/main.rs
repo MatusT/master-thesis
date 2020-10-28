@@ -294,7 +294,7 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
 
-        let reduce = 128u32;
+        let reduce = 256u32;
         let structures_pvs = structures
             .iter()
             .map(|structure| {
@@ -977,7 +977,7 @@ impl framework::ApplicationStructure for Application {
                 rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
 
                 let draw_occluded =
-                    self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
+                    self.state.draw_occluded || distance < structure.bounding_radius();
                 let draw_lod = self.state.draw_lod;
 
                 // For each molecule type
