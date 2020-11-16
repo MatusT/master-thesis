@@ -312,7 +312,7 @@ fn start<E: ApplicationStructure>(
 
                     drop(frame);
 
-                    // println!("{},{}", start.elapsed().as_millis(), frame_start.elapsed().as_millis());
+                    println!("{},{}", start.elapsed().as_millis(), frame_start.elapsed().as_millis());
                     frame_start = Instant::now();
                 }
                 _ => {}

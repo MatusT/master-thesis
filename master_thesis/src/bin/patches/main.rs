@@ -160,6 +160,8 @@ impl framework::ApplicationStructure for Application {
             structures_bgs.push(structure_bgs)
         }
 
+        println!("Loaded structures");
+
         let mut colors: std::collections::HashMap<String, Vec<f32>> =
             ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
                 .expect("Unable to load colors.");
@@ -188,7 +190,7 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            r,
+            2.0 * r,
             100.0,
         );
 
@@ -294,7 +296,7 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
 
-        let reduce = 256u32;
+        let reduce = 1028u32;
         let structures_pvs = structures
             .iter()
             .map(|structure| {
@@ -540,8 +542,8 @@ impl framework::ApplicationStructure for Application {
         });
 
         let state = ApplicationState {
-            draw_lod: false,
-            draw_occluded: true,
+            draw_lod: true,
+            draw_occluded: false,
             animating: false,
 
             ssao_settings: [
@@ -730,6 +732,7 @@ impl framework::ApplicationStructure for Application {
                                 let mut visible_molecules = 0u32;
                                 if let Some(set) = self.structures_pvs[0].get_from_eye(direction) {
                                     for (molecule_index, ranges) in set.visible.iter().enumerate() {
+                                        println!("{} {}", self.structures[0].borrow().molecules()[molecule_index].name(), ranges.len());
                                         total_molecules += self.structures[0].borrow().transforms()
                                             [molecule_index]
                                             .1
@@ -909,13 +912,13 @@ impl framework::ApplicationStructure for Application {
             )) {
                 computed_count += 1;
             }
-            if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
-                device,
-                queue,
-                -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
-            )) {
-                computed_count += 1;
-            }
+            // if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
+            //     device,
+            //     queue,
+            //     -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
+            // )) {
+            //     computed_count += 1;
+            // }
         }
 
         //================== RENDER MOLECULES
@@ -955,30 +958,29 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
+            let draw_occluded = self.state.draw_occluded;
+            let draw_lod = self.state.draw_lod;
+
             for i in 0..self.structures_transforms.len() {
                 let structure_id = self.structures_transforms[i].0;
                 let structure = self.structures[structure_id].borrow();
                 let structure_pvs = &self.structures_pvs[structure_id];
 
+                let eye = self.camera.eye();
+                let eye = vec3(eye.x as f32, eye.y as f32, eye.z as f32);
+
                 let rotation = self.structures_transforms[i].2.fixed_slice::<U3, U3>(0, 0);
                 let position = self.structures_transforms[i].1.column(3).xyz();
 
-                let direction = vec3(
-                    self.camera.eye().x as f32,
-                    self.camera.eye().y as f32,
-                    self.camera.eye().z as f32,
-                ) - position;
+                let direction = eye - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
+
                 let distance = (direction.magnitude()
-                    - 2.0 * self.structures[i].borrow().bounding_radius())
+                    - 2.0 * self.structures[structure_id].borrow().bounding_radius())
                 .max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
-                rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
-
-                let draw_occluded =
-                    self.state.draw_occluded || distance < structure.bounding_radius();
-                let draw_lod = self.state.draw_lod;
+                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
 
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {
@@ -990,18 +992,17 @@ impl framework::ApplicationStructure for Application {
                     rpass.set_push_constants(ShaderStage::FRAGMENT, 16, cast_slice(&color));
 
                     // Find LOD
+                    let lods = structure.molecules()[molecule_id].lods();
                     let (start, end) = if draw_lod {
                         let mut start = 0;
                         let mut end = 0;
 
-                        for i in 0..structure.molecules()[molecule_id].lods().len() {
-                            if (i == structure.molecules()[molecule_id].lods().len() - 1)
-                                || (distance > structure.molecules()[molecule_id].lods()[i].0
-                                    && distance
-                                        < structure.molecules()[molecule_id].lods()[i + 1].0)
+                        for i in 0..lods.len() {
+                            if (i == lods.len() - 1)
+                                || (distance > lods[i].0 && distance < lods[i + 1].0)
                             {
-                                start = structure.molecules()[molecule_id].lods()[i].1.start;
-                                end = structure.molecules()[molecule_id].lods()[i].1.end;
+                                start = lods[i].1.start;
+                                end = lods[i].1.end;
 
                                 break;
                             }
@@ -1009,15 +1010,15 @@ impl framework::ApplicationStructure for Application {
 
                         (start, end)
                     } else {
-                        let start = structure.molecules()[molecule_id].lods()[0].1.start;
-                        let end = structure.molecules()[molecule_id].lods()[0].1.end;
+                        let start = lods[0].1.start;
+                        let end = lods[0].1.end;
 
                         (start, end)
                     };
 
                     // IF !draw_occluded && PVS is available -> iterate only over visible parts
                     if !draw_occluded {
-                        if let Some(pvs) = structure_pvs.get_from_eye(-direction_norm_rot) {
+                        if let Some(pvs) = structure_pvs.get_from_eye(direction_norm_rot) {
                             for range in pvs.visible[molecule_id].iter() {
                                 rpass.draw(start..end, range.0..range.1);
                             }
@@ -1041,8 +1042,8 @@ impl framework::ApplicationStructure for Application {
             None, // Some(&self.normals_texture),
             &self.ssao_finals[0],
         );
-
         queue.submit(Some(encoder.finish()));
+
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
         self.ssao_module.compute(

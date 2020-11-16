@@ -59,7 +59,7 @@ fn main() {
     let projection = infinite_perspective_rh_no(aspect, 0.785398163, 0.1);
     let ratios = [0.9, 0.75, 0.5, 0.25, 0.1,
                   0.075, 0.05, 0.025, 0.01,
-                  0.005, 0.001,
+                  0.005, 0.001, 0.0005, 0.0001
     ];
     let area_threshold = 32.0;
 
@@ -123,7 +123,7 @@ fn main() {
                 println!("Current ratio: {}. New centroids: {}. New means real len: {}. New area: {}", ratios[reduction_ratio], new_centroids_num, new_lod.atoms().len(), new_area);
 
                 // If the new are is now above the area limit, save It and continue
-                if new_area > area_threshold {
+                if new_area > area_threshold || reduction_ratio == ratios.len() - 1{
                     radius = new_lod.max_radius();
                     
                     new_lod.set_breakpoint(z);

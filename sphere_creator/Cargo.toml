@@ -1,0 +1,17 @@
+[package]
+name = "sphere_creator"
+version = "0.1.0"
+authors = ["Matúš Talčík <matus.talcik@outlook.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nalgebra-glm = "0.7"
+kmeans = { path = "../kmeans" }
+rpdb = { path = "../rpdb" }
+rand = "0.7"
+rand_distr = "0.3"
+ron = "0.6"
+noise = "0.6"
+genmesh = "0.6"

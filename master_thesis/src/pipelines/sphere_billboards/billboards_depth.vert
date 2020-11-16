@@ -1,8 +1,8 @@
 #version 460
 
-layout(push_constant) uniform PushConstants {
-    float bounding_radius;
-};
+// layout(push_constant) uniform PushConstants {
+//     float bounding_radius;
+// };
 
 layout(set = 0, binding = 0, std140) uniform CameraMatrices {
   mat4 projection;

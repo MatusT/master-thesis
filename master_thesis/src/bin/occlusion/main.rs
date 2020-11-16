@@ -295,13 +295,13 @@ impl framework::ApplicationStructure for Application {
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    10,
-                    128,
+                    24,
+                    64,
                 )
             })
             .collect();
 
-        let n = 10;
+        let n = 12;
         let n3 = n * n * n;
 
         let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
@@ -314,13 +314,40 @@ impl framework::ApplicationStructure for Application {
 
             let radius = structures[structure_id].borrow_mut().bounding_radius();
             let position = vec3(
-                x * radius * 2.0 * n as f32,
-                y * radius * 2.0 * n as f32,
-                z * radius * 2.0 * n as f32,
+                x * radius * 1.5 * n as f32,
+                y * radius * 1.5 * n as f32,
+                z * radius * 1.5 * n as f32,
             );
             let translation = translation(&position);
 
             structures_transforms.push((structure_id, translation, rotation));
+        }
+
+        let mut indices_to_delete = Vec::new();
+        for i in 0..structures_transforms.len() {
+            for j in (i + 1)..structures_transforms.len() {
+                let r1 = structures[structures_transforms[i].0].borrow().bounding_radius();
+                let r2 = structures[structures_transforms[j].0].borrow().bounding_radius();
+
+                let pos1 = structures_transforms[i].1.column(3).xyz();
+                let pos2 = structures_transforms[j].1.column(3).xyz();
+
+                let dist = distance(&pos1, &pos2);
+                let dist = dist - r1 - r2;
+                
+                if dist < 0.0 {
+                    indices_to_delete.push(j);
+                }
+            }
+        }
+
+        let structures_transforms_old = structures_transforms;
+        let mut structures_transforms = Vec::new();
+
+        for (i, s) in structures_transforms_old.iter().enumerate() {
+            if !indices_to_delete.contains(&i) {
+                structures_transforms.push(*s);
+            }
         }
 
         println!("Amount of structures: {}", structures_transforms.len());
@@ -552,24 +579,24 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: 30000.0,
+                    radius: 60000.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
-                    horizonAngleThreshold: 0.2,
+                    horizonAngleThreshold: 0.1,
                     sharpness: 1.0,
                     detailShadowStrength: 5.0,
                     blurPassCount: 8,
                     ..Default::default()
                 },
                 ssao::Settings {
-                    radius: 16.0,
+                    radius: 32.0,
                     projection: camera.ubo().projection,
-                    shadowMultiplier: 2.0,
-                    shadowPower: 1.5,
+                    shadowMultiplier: 3.0,
+                    shadowPower: 2.0,
                     horizonAngleThreshold: 0.0,
                     sharpness: 0.0,
-                    detailShadowStrength: 3.0,
+                    detailShadowStrength: 4.0,
                     blurPassCount: 8,
                     ..Default::default()
                 },
@@ -934,10 +961,11 @@ impl framework::ApplicationStructure for Application {
                 .max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
-                rpass.set_push_constants(ShaderStage::VERTEX, 4, cast_slice(&[(i + 1) as u32]));
+                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
 
-                let draw_occluded =
-                    self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
+                let draw_occluded = self.state.draw_occluded;
+                // let draw_occluded =
+                //     self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
                 let draw_lod = self.state.draw_lod;
 
                 // For each molecule type

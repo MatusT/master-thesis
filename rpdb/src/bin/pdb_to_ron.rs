@@ -19,6 +19,7 @@ fn main() {
             .to_ascii_uppercase();
 
         let molecule = molecule::Molecule::from_pdb(in_file_path);
+        println!("Number of atoms: {}", molecule.lods()[0].atoms().len());
 
         // TODO: Optionally generate LODs
 

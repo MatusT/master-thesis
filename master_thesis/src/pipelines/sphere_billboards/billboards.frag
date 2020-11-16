@@ -2,7 +2,7 @@
 
 layout(push_constant) uniform PushConstants {
     float time;
-    uint id;
+    uint object_id;
     vec4 color;
 };
 
@@ -48,7 +48,7 @@ void main()
 	const vec4 fragment_position_clip = position_cs + camera.projection[2] * z;
 	gl_FragDepth = fragment_position_clip.z / fragment_position_clip.w;
 
-	z = remap(z, 0.0, scale, 0.0, 1.0);
+	z = remap(z, 0.0, scale, 0.4, 1.0);
 	#ifdef DEBUG
 	out_color = vec4(z * in_color, 1.0);
 	#else	
@@ -58,6 +58,6 @@ void main()
 	#ifdef OUTPUT_NORMALS
 		out_normal = vec4(normalize(position_vs.xyz - center_vs.xyz), 0.0);
 	#else
-		out_instance = id;
+		out_instance = object_id;
 	#endif
 }
