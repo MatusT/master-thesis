@@ -3,6 +3,7 @@
 layout(push_constant) uniform PushConstants {
     float time;
     uint object_id;
+	float cut;
     vec4 color;
 };
 

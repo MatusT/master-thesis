@@ -26,12 +26,8 @@ impl SphereBillboardsPipeline {
             push_constant_ranges: &[
                 PushConstantRange {
                     stages: ShaderStage::VERTEX,
-                    range: 0..8,
+                    range: 0..12,
                 },
-                // PushConstantRange {
-                //     stages: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                //     range: 4..8,
-                // },
                 PushConstantRange {
                     stages: ShaderStage::FRAGMENT,
                     range: 4..32,
@@ -116,12 +112,8 @@ impl SphereBillboardsPipeline {
             push_constant_ranges: &[
                 PushConstantRange {
                     stages: ShaderStage::VERTEX,
-                    range: 0..8,
+                    range: 0..12,
                 },
-                // PushConstantRange {
-                //     stages: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                //     range: 4..8,
-                // },
                 PushConstantRange {
                     stages: ShaderStage::FRAGMENT,
                     range: 4..32,
@@ -199,12 +191,8 @@ impl SphereBillboardsPipeline {
             push_constant_ranges: &[
                 PushConstantRange {
                     stages: ShaderStage::VERTEX,
-                    range: 0..8,
+                    range: 0..12,
                 },
-                // PushConstantRange {
-                //     stages: ShaderStage::VERTEX | ShaderStage::FRAGMENT,
-                //     range: 4..8,
-                // },
                 PushConstantRange {
                     stages: ShaderStage::FRAGMENT,
                     range: 4..32,
@@ -307,12 +295,7 @@ impl SphereBillboardsDepthPipeline {
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[
-                // PushConstantRange {
-                //     stages: ShaderStage::VERTEX,
-                //     range: 0..4,
-                // }
-            ],
+            push_constant_ranges: &[],
         });
 
         let depth_stencil_state = if write_visibility {

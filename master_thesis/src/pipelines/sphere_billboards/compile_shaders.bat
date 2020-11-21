@@ -10,7 +10,3 @@ glslangvalidator -V -DWRITE_VISIBILITY billboards_depth.frag -o billboards_depth
 
 glslangvalidator -V -DDEBUG billboards.vert -o billboards_debug.vert.spv
 glslangvalidator -V -DDEBUG billboards.frag -o billboards_debug.frag.spv
-
-glslangvalidator -V billboards_depth.comp -o billboards_depth.comp.spv
-glslangvalidator -V billboards_depth_resolve.comp -o billboards_depth_resolve.comp.spv
-

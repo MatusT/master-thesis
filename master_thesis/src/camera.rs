@@ -42,9 +42,9 @@ pub trait Camera {
 pub struct RotationCamera {
     pub ubo: CameraUbo,
 
-    yaw: f64,
-    pitch: f64,
-    distance: f32,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub distance: f32,
 
     speed: f32,
     mouse_pressed: bool,

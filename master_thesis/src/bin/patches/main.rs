@@ -160,7 +160,16 @@ impl framework::ApplicationStructure for Application {
             structures_bgs.push(structure_bgs)
         }
 
-        println!("Loaded structures");
+        let mut total_atoms = 0;
+        let mut total_molecules = 0;
+        for molecule_id in 0..structures[0].borrow().molecules().len() {
+            let molecule_atoms = structures[0].borrow().molecules()[molecule_id].lods()[0].1.end;
+            let molecules = structures[0].borrow().transforms()[molecule_id].1;
+
+            total_atoms += molecules * molecule_atoms as usize;
+            total_molecules += molecules;
+        }
+        println!("Loaded structure with {} molecules and {} atoms", total_molecules, total_atoms);
 
         let mut colors: std::collections::HashMap<String, Vec<f32>> =
             ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
@@ -296,7 +305,7 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
 
-        let reduce = 1028u32;
+        let reduce = 1024u32;
         let structures_pvs = structures
             .iter()
             .map(|structure| {
@@ -304,7 +313,7 @@ impl framework::ApplicationStructure for Application {
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    5,
+                    24,
                     reduce as usize,
                 )
             })
@@ -555,7 +564,7 @@ impl framework::ApplicationStructure for Application {
                     horizonAngleThreshold: 0.2,
                     sharpness: 1.0,
                     detailShadowStrength: 5.0,
-                    blurPassCount: 8,
+                    blurPassCount: 4,
                     ..Default::default()
                 },
                 ssao::Settings {
@@ -566,7 +575,7 @@ impl framework::ApplicationStructure for Application {
                     horizonAngleThreshold: 0.0,
                     sharpness: 0.0,
                     detailShadowStrength: 3.0,
-                    blurPassCount: 8,
+                    blurPassCount: 4,
                     ..Default::default()
                 },
             ],
@@ -732,7 +741,7 @@ impl framework::ApplicationStructure for Application {
                                 let mut visible_molecules = 0u32;
                                 if let Some(set) = self.structures_pvs[0].get_from_eye(direction) {
                                     for (molecule_index, ranges) in set.visible.iter().enumerate() {
-                                        println!("{} {}", self.structures[0].borrow().molecules()[molecule_index].name(), ranges.len());
+                                        // println!("{} {}", self.structures[0].borrow().molecules()[molecule_index].name(), ranges.len());
                                         total_molecules += self.structures[0].borrow().transforms()
                                             [molecule_index]
                                             .1
@@ -905,12 +914,14 @@ impl framework::ApplicationStructure for Application {
 
             let direction = rotation.try_inverse().unwrap() * normalize(&(eye - position));
 
+            let start = Instant::now();
             if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
                 device,
                 queue,
                 vec3(direction.x as f64, direction.y as f64, direction.z as f64),
             )) {
                 computed_count += 1;
+                println!("Occlusion time: {}", start.elapsed().as_millis());
             }
             // if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
             //     device,
@@ -981,6 +992,7 @@ impl framework::ApplicationStructure for Application {
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
+                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[0.0f32]));
 
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {

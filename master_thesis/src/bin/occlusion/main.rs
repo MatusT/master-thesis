@@ -153,9 +153,11 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            40000.0,
+            1400.0,
             100.0,
         );
+        camera.set_yaw(1.4100000000000015);
+        camera.set_pitch(1.5207963267948965);
 
         // Data
         let args: Vec<String> = std::env::args().collect();
@@ -295,18 +297,20 @@ impl framework::ApplicationStructure for Application {
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    24,
-                    64,
+                    20,
+                    128,
                 )
             })
             .collect();
 
-        let n = 12;
+        let n = 13;
         let n3 = n * n * n;
 
         let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
         let structure_rand = rand_distr::Uniform::from(0..structures.len());
-        for i in 0..n3 {
+
+        structures_transforms.push((0, Mat4::identity(), Mat4::identity()));
+        for i in 1..n3 {
             let structure_id = structure_rand.sample(&mut rand::thread_rng());
             let [x, y, z]: [f32; 3] = rand_distr::UnitBall.sample(&mut rand::thread_rng());
 
@@ -836,11 +840,13 @@ impl framework::ApplicationStructure for Application {
         queue: &wgpu::Queue,
         spawner: &impl futures::task::LocalSpawn,
     ) {
+        // println!("{} {} {}", self.camera.yaw, self.camera.pitch, self.camera.distance);
+
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
         // Rotate the structure
-        for r in self.structures_transforms.iter_mut() {
+        for r in self.structures_transforms[1..].iter_mut() {
             r.2 = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (r.2);
         }
 
@@ -956,14 +962,17 @@ impl framework::ApplicationStructure for Application {
                 let direction = eye - position;
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
 
-                let distance = (direction.magnitude()
-                    - 2.0 * self.structures[structure_id].borrow().bounding_radius())
-                .max(1.0);
+                let distance = (direction.magnitude() - 2.0 * structure.bounding_radius()).max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
+                if i != 0 {
+                    rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[structure.bounding_radius()]));
+                } else {
+                    rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[0.0f32]));
+                }
 
-                let draw_occluded = self.state.draw_occluded;
+                let draw_occluded = i == 0 || self.state.draw_occluded;
                 // let draw_occluded =
                 //     self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
                 let draw_lod = self.state.draw_lod;

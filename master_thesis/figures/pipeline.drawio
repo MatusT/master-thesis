@@ -1,13 +1,13 @@
-<mxfile host="65bd71144e" modified="2020-10-28T22:46:48.445Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.50.1 Chrome/83.0.4103.122 Electron/9.2.1 Safari/537.36" etag="Vm1kS-TNJyXNUcJSrKXP" version="13.6.5">
+<mxfile host="65bd71144e" modified="2020-11-21T19:35:54.746Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.51.1 Chrome/83.0.4103.122 Electron/9.3.3 Safari/537.36" etag="Rhr0Hl1HYFFyQHuCvD4v" version="13.6.5">
     <diagram id="Kkn2xIEMjNNQFJb2yRpk" name="Page-1">
-        <mxGraphModel dx="977" dy="658" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="792" dy="548" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
                 <mxCell id="11" value="Sort" style="rounded=0;" parent="1" vertex="1">
                     <mxGeometry x="40" y="210" width="160" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="12" value="Render depth and &#10;calculate occlusion" style="rounded=0;labelBackgroundColor=none;" parent="1" vertex="1">
+                <mxCell id="12" value="Render depth and &#10;calculate visibility" style="rounded=0;labelBackgroundColor=none;" parent="1" vertex="1">
                     <mxGeometry x="240" y="210" width="160" height="40" as="geometry"/>
                 </mxCell>
                 <mxCell id="35" value="" style="group;" parent="1" vertex="1" connectable="0">
@@ -52,10 +52,10 @@
                 <mxCell id="41" value="Render" style="rounded=0;" parent="1" vertex="1">
                     <mxGeometry x="620" y="210" width="160" height="40" as="geometry"/>
                 </mxCell>
-                <mxCell id="42" value="Preprocess Phase" style="rounded=0;strokeWidth=1;fillColor=#E6E6E6;" parent="1" vertex="1">
+                <mxCell id="42" value="Preprocess Stage" style="rounded=0;strokeWidth=1;fillColor=#474747ff;fontColor=#FFFFFF;" parent="1" vertex="1">
                     <mxGeometry x="40" y="260" width="160" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="43" value="On demand/preprocess" style="rounded=0;strokeWidth=1;fillColor=#E6E6E6;" parent="1" vertex="1">
+                <mxCell id="43" value="On demand" style="rounded=0;strokeWidth=1;fontColor=#FFFFFF;fillColor=#474747ff;" parent="1" vertex="1">
                     <mxGeometry x="240" y="260" width="340" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;" parent="1" source="4" edge="1">
@@ -75,7 +75,7 @@
                 <mxCell id="46" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="7" target="10" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="47" value="Retrieval Phase" style="rounded=0;strokeWidth=1;fillColor=#E6E6E6;" parent="1" vertex="1">
+                <mxCell id="47" value="Retrieval Stage" style="rounded=0;strokeWidth=1;fontColor=#FFFFFF;fillColor=#474747ff;" parent="1" vertex="1">
                     <mxGeometry x="620" y="260" width="160" height="20" as="geometry"/>
                 </mxCell>
             </root>

@@ -194,6 +194,8 @@ fn start<E: ApplicationStructure>(
         WebSpawner {}
     };
 
+    let mut output_frame_time = false;
+
     let mut sc_desc = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         // TODO: Allow srgb unconditionally
@@ -290,6 +292,17 @@ fn start<E: ApplicationStructure>(
                     | WindowEvent::CloseRequested => {
                         *control_flow = ControlFlow::Exit;
                     }
+                    WindowEvent::KeyboardInput {
+                        input:
+                            event::KeyboardInput {
+                                virtual_keycode: Some(event::VirtualKeyCode::W),
+                                state: event::ElementState::Pressed,
+                                ..
+                            },
+                        ..
+                    } => {
+                        output_frame_time = !output_frame_time;
+                    }
                     _ => {
                         example.window_event(event);
                     }
@@ -312,7 +325,9 @@ fn start<E: ApplicationStructure>(
 
                     drop(frame);
 
-                    println!("{},{}", start.elapsed().as_millis(), frame_start.elapsed().as_millis());
+                    if output_frame_time {
+                        println!("{},{}", start.elapsed().as_millis(), frame_start.elapsed().as_millis());
+                    }
                     frame_start = Instant::now();
                 }
                 _ => {}

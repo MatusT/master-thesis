@@ -442,9 +442,6 @@ impl StructurePvsField {
     }
 
     pub fn reduce(&mut self, index: usize) {
-        use std::time::{Duration, Instant};
-        // let start = Instant::now();
-
         let structure = self.structure.borrow();
         let pvs = self.sets[index].as_mut().unwrap();
 
@@ -468,7 +465,6 @@ impl StructurePvsField {
                 }
             }
 
-            // let start_sort = Instant::now();
             // Sort the gaps by their length in decreasing order
             gaps[molecule_index].sort_by(|a, b| {
                 let a_distance = a.1 - a.0;
@@ -476,7 +472,6 @@ impl StructurePvsField {
 
                 b_distance.cmp(&a_distance)
             });
-            // println!("Sort in {:?} ms", start_sort.elapsed().as_micros());
         }
 
         // Compute how many ranges we have in total across all molecule types
@@ -511,7 +506,7 @@ impl StructurePvsField {
                 gaps[min_index].pop();
                 ranges_num -= 1;
             } else {
-                panic!("Somethin went wrong");
+                break;
             }
         }
 

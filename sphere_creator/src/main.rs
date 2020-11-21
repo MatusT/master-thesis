@@ -58,30 +58,29 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let out_path = args[1].clone();
 
-    // let sphere = genmesh::generators::IcoSphere::subdivide(5);
-    // let sphere = genmesh::generators::SphereUv::new(90, 180);
-
     let mut rng = rand::thread_rng();
-    let mut noise_generator = noise::SuperSimplex::new();
-    // noise_generator.set
+    let noise_generator = noise::SuperSimplex::new();
 
-    let mut molecules_shell1 = Vec::new();
-    let mut molecules_shell2 = Vec::new();
-    let factor = 400.0;
+    let factor = 300.0;
 
-    for x in 0..240 {
-        for y in 0..240 {
-            let x = x as f32 * 1.5;
-            let y = y as f32 * 1.5;
-            let x = (x as f32).to_radians();
-            let y = (y as f32).to_radians();
+    let mut map: HashMap<String, Vec<Mat4>> = HashMap::new();
+    for i in 1..=40 {
+        map.insert("OUTER_".to_string() + &i.to_string(), vec![]);
+        map.insert("INNER_".to_string() + &i.to_string(), vec![]);
+    }
+    // let mut main_shell = Vec::new();
+    for x in (0..360).step_by(6) {
+        for y in (0..360).step_by(6) {
+            let i = y * 240 + x;
+            let xs = (x as f32).to_radians();
+            let ys = (y as f32).to_radians();
 
-            let v = spherical_to_cartesian(&vec2(x, y));
+            let v = spherical_to_cartesian(&vec2(xs, ys));
 
-            let noise = noise_generator.get([x as f64, y as f64]) as f32;
-            let position = v * factor + v * noise * 50.0;
+            let noise = noise_generator.get([xs as f64, ys as f64]) as f32;
+            let position = v * factor + v * noise * 80.0;
             
-            let translation = translation(&position);
+            let t = translation(&position);
 
             let yaw = std::f32::consts::PI * rng.gen::<f32>();
             let pitch = std::f32::consts::PI * rng.gen::<f32>();
@@ -90,19 +89,32 @@ fn main() {
                 * rotation(pitch, &vec3(0.0, 1.0, 0.0))
                 * rotation(roll, &vec3(0.0, 0.0, 1.0));
 
-            let model_matrix = translation * rotation;
+            let model_matrix = t * rotation;
 
-            if noise > 0.0 {
-                molecules_shell1.push(model_matrix);
-            } else {
-                molecules_shell2.push(model_matrix);
-            }
+            let i = rng.gen_range(10, 20);
+            let name = "OUTER_".to_string() + &i.to_string();
+            map.get_mut(&name).unwrap().push(model_matrix);
+
+            // main_shell.push(model_matrix);
+
+            // if x % 5 == 0 || y % 5 == 0 {
+            //     let xs = xs + 0.5f32.to_radians();
+            //     let ys = ys + 0.5f32.to_radians();
+            //     let noise = noise_generator.get([xs as f64, ys as f64]) as f32;
+            //     let position = v * factor + v * noise * 80.0;
+            //     let t = translation(&position);
+            //     let model_matrix = t * rotation;
+
+            //     let i = rng.gen_range(1, 5);
+            //     let name = "OUTER_".to_string() + &i.to_string();
+            //     map.get_mut(&name).unwrap().push(model_matrix);
+            // }
         }
-    }
+    }    
 
-    let mut molecules_inner = Vec::new();
-    for _ in 0..250000 {
-        let factor = 300.0;
+    // let mut molecules_inner = Vec::new();
+    for _ in 0..10000 {
+        let factor = 150.0;
         let v: [f32; 3] = UnitBall.sample(&mut rand::thread_rng());
         let position = vec3(v[0] * factor, v[1] * factor, v[2] * factor);
         let translation = translation(&position);
@@ -116,15 +128,19 @@ fn main() {
 
         let model_matrix = translation * rotation;
 
-        molecules_inner.push(model_matrix);
+        let i = rng.gen_range(10, 20);
+        let name = "INNER_".to_string() + &i.to_string();
+        map.get_mut(&name).unwrap().push(model_matrix);
+
+        // molecules_inner.push(model_matrix);
     }
+    // map.insert("C_INNER".to_string(), molecules_inner);
+    // map.insert("C_SHELL".to_string(), main_shell);
 
-    let mut map: HashMap<String, Vec<Mat4>> = HashMap::new();
-    map.insert("C1".to_string(), molecules_shell1);
-    map.insert("C2".to_string(), molecules_shell2);
-    map.insert("C_INNER".to_string(), molecules_inner);
+    map.retain(|_, v| !v.is_empty());
+
+
     let structure = Structure { molecules: map };
-
     let data = ron::ser::to_string(&structure).expect("Could not serialize the structure.");
     std::fs::write(out_path, data).expect("Could not write the structure.");
 }

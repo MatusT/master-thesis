@@ -3,6 +3,7 @@
 layout(push_constant) uniform PushConstants {
     float time;
     uint object_id;
+    float cut;
 };
 
 layout(set = 0, binding = 0, std140) uniform CameraMatrices {
@@ -84,7 +85,10 @@ void main() {
   const vec3 camera_right = vec3(view[0][0], view[1][0], view[2][0]);
   const vec3 camera_up = vec3(view[0][1], view[1][1], view[2][1]);
 
-  mat4 model_matrix = structure.model_matrix * model_matrices[gl_InstanceIndex];
+  const mat4 local_model_matrix = model_matrices[gl_InstanceIndex];
+  const mat4 model_matrix = structure.model_matrix * local_model_matrix;
+  const vec3 translation = local_model_matrix[3].xyz;
+
   const float offset = 0.75 * sin(4.0f * 3.14159265359f * time + float(gl_InstanceIndex) / 10.0);
 
   const vec4 center_position =
@@ -107,5 +111,10 @@ void main() {
   #endif
 
   instance = object_id * 100000 + uint(gl_InstanceIndex);
-  gl_Position = position_cs;
+
+  if (translation.z > cut) {
+    gl_Position = vec4(0.0);
+  } else {
+    gl_Position = position_cs;
+  }
 }

@@ -11,6 +11,7 @@ Replace **list_of_object_files** with a space delimited list of files (in .ron f
 Example provided:
 ```
 cargo run --release --bin occlusion ..\data\SARS-CoV-2\SARS-CoV-2.ron
+cargo run --release --bin occlusion ..\data\SARS-CoV-2\SARS-CoV-2.ron
 ```
 
 Controls:
@@ -20,6 +21,7 @@ Controls:
 - C - reload colors from a file **colors.ron**
 - S - switch between final view/SSAO Far/SSAO near
 - F - modify fog distance
+- W - turn on printing frame time to console
 
 Example output after modification:
 ```
