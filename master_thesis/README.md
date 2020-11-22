@@ -11,7 +11,7 @@ Replace **list_of_object_files** with a space delimited list of files (in .ron f
 Example provided:
 ```
 cargo run --release --bin occlusion ..\data\SARS-CoV-2\SARS-CoV-2.ron
-cargo run --release --bin occlusion ..\data\SARS-CoV-2\SARS-CoV-2.ron
+cargo run --release --bin occlusion ..\data\RandomSpheres\sphere.ron
 ```
 
 Controls:
