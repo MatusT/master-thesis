@@ -64,5 +64,5 @@ void main() {
     float final_ao = clamp(pow(ao_far, pow_far) * pow(ao_near, pow_near), 0.0, 1.0);
     // float final_ao = clamp(pow(ao_far, pow_far), 0.0, 1.0);
 
-    imageStore(output_color, ivec2(gl_GlobalInvocationID.xy), vec4(final_ao, final_ao, final_ao, 1.0));
+    imageStore(output_color, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
 }
