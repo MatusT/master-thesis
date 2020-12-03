@@ -12,8 +12,8 @@ void main() {
     // Contour based on instance ID differences
     const vec2 resolution = textureSize(usampler2D(input_instance, linear_sampler), 0);
     const vec2 uv = vec2(gl_GlobalInvocationID.xy) / resolution;
-    const float w_step = 1.0 / resolution.x;
-    const float h_step = 1.0 / resolution.y;   
+    const float w_step = 0.2 / resolution.x;
+    const float h_step = 0.2 / resolution.y;   
 
     const vec3 color = texture(sampler2D(input_color, linear_sampler), uv).rgb;
 
@@ -29,6 +29,6 @@ void main() {
     }
     else
     { //~ current pixel lies on the edge
-        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.7), 1.0));
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.81), 1.0));
     }
 }

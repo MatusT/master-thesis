@@ -546,7 +546,7 @@ impl framework::ApplicationStructure for Application {
                     sharpness: 0.0,
                     detailShadowStrength: 0.0,
                     blurPassCount: 1,
-                    x: 1.5,
+                    x: 1.0,
                     ..Default::default()
                 },
                 ssao::Settings {
@@ -558,7 +558,7 @@ impl framework::ApplicationStructure for Application {
                     sharpness: 0.0,
                     detailShadowStrength: 0.0,
                     blurPassCount: 1,
-                    x: 1.7,
+                    x: 1.0,
                     ..Default::default()
                 },
             ],
@@ -566,7 +566,7 @@ impl framework::ApplicationStructure for Application {
             ssao_parameter: 0,
 
             fog_modifying: false,
-            fog_distance: 50000.0,
+            fog_distance: 24000.0,
 
             render_mode: 0,
         };

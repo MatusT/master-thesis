@@ -340,6 +340,16 @@ impl PostProcessModule {
                     BindGroupLayoutEntry {
                         binding: 5,
                         visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: ShaderStage::all(),
                         ty: BindingType::StorageTexture {
                             dimension: TextureViewDimension::D2,
                             readonly: false,
@@ -505,36 +515,6 @@ impl PostProcessModule {
             ],
         });
 
-        let combine_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Combine bind group"),
-            layout: &self.combine_bgl,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(color),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(ssao[0]),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: BindingResource::TextureView(ssao[1]),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: BindingResource::TextureView(depth),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
-                },
-            ],
-        });
 
         let gaussx_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -574,6 +554,41 @@ impl PostProcessModule {
             ],
         });
 
+        let combine_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Combine bind group"),
+            layout: &self.combine_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(color),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(ssao[0]),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(ssao[1]),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(depth),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(&self.bloom_texture[0]),
+                },
+                BindGroupEntry {
+                    binding: 6,
+                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
+                },
+            ],
+        });
+
         let contours_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &self.contours_bgl,
@@ -597,48 +612,6 @@ impl PostProcessModule {
             ],
         });
 
-        let dof_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &self.dof_bgl,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(depth),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: BindingResource::TextureView(color),
-                },
-            ],
-        });
-
-        let chroma_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &self.chroma_bgl,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(color),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
-                },
-            ],
-        });
-
         let dispatch_size = |tile_size: u32, total_size: u32| -> u32 {
             return (total_size + tile_size - 1) / tile_size;
         };
@@ -649,23 +622,22 @@ impl PostProcessModule {
         let mut cpass = encoder.begin_compute_pass();
 
         // Monotone
-        // {
-        //     cpass.set_pipeline(&self.monotone_pass);
-        //     cpass.set_bind_group(0, &monotone_bg, &[]);
-        //     cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32]));
-        //     cpass.dispatch(x, y, 1);
+        {
+            cpass.set_pipeline(&self.monotone_pass);
+            cpass.set_bind_group(0, &monotone_bg, &[]);
+            cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32]));
+            cpass.dispatch(x, y, 1);
 
-        //     cpass.set_pipeline(&self.gauss_pass[0]);
-        //     cpass.set_bind_group(0, &gaussx_bg, &[]);
-        //     cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32, self.options.gauss_amount]));
-        //     cpass.dispatch(x, y, 1);
+            cpass.set_pipeline(&self.gauss_pass[0]);
+            cpass.set_bind_group(0, &gaussx_bg, &[]);
+            cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32, self.options.gauss_amount]));
+            cpass.dispatch(x, y, 1);
 
-        //     cpass.set_pipeline(&self.gauss_pass[1]);
-        //     cpass.set_bind_group(0, &gaussy_bg, &[]);
-        //     cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32, self.options.gauss_amount]));
-        //     cpass.dispatch(x, y, 1);
-        // }
-
+            cpass.set_pipeline(&self.gauss_pass[1]);
+            cpass.set_bind_group(0, &gaussy_bg, &[]);
+            cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32, self.options.gauss_amount]));
+            cpass.dispatch(x, y, 1);
+        }
 
         // Combine
         {
@@ -692,40 +664,5 @@ impl PostProcessModule {
             cpass.set_bind_group(0, &contours_bg, &[]);
             cpass.dispatch(x, y, 1);
         }
-
-        // // Depth of field
-        // {
-        //     cpass.set_pipeline(&self.dof_pass);
-        //     cpass.set_bind_group(0, &dof_bg, &[]);
-        //     cpass.set_push_constants(
-        //         0,
-        //         cast_slice(&[
-        //             self.width as f32,
-        //             self.height as f32,
-        //             self.options.focus_point.x,
-        //             self.options.focus_point.y,
-        //             self.options.dof,
-        //             self.options.focus,
-        //             self.options.focus_amount,
-        //         ]),
-        //     );
-        //     cpass.dispatch(x, y, 1);
-        // }
-
-        // // Chroma
-        // {
-        //     cpass.set_pipeline(&self.chroma_pass);
-        //     cpass.set_bind_group(0, &chroma_bg, &[]);
-        //     cpass.set_push_constants(
-        //         0,
-        //         cast_slice(&[
-        //             self.width as f32,
-        //             self.height as f32,
-        //             time,
-        //             self.options.chroma_amount,
-        //         ]),
-        //     );
-        //     cpass.dispatch(x, y, 1);
-        // }
     }
 }

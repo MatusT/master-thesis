@@ -35,7 +35,7 @@ float rand(uint value) {
 void main(void) {
 
   // vec2 autofocusPoint = vec2(0.37, 0.5);
-  vec2 _autofocusPoint = vec2(0.48, 0.2);
+  vec2 _autofocusPoint = vec2(0.5, 0.5);
   float autofocus = 1.0;
 
   float dp = 0.99;
@@ -44,6 +44,23 @@ void main(void) {
 
   vec4 _color4 = texture(sampler2D(color_texture, linear_sampler), texCoord);
   vec4 _depth4 = texture(sampler2D(depth_texture, linear_sampler), texCoord);
+
+
+ {
+  float d = _depth4.r * 100.0;
+
+
+  imageStore(
+      output_texture, ivec2(gl_GlobalInvocationID.xy),
+      vec4(_color4)
+      );
+
+      return;
+}
+
+
+
+
 
   // if (_depth4.r > 0.9939)
   //   gl_FragColor = vec4(1);
@@ -63,7 +80,7 @@ void main(void) {
   vec4 samFocus =
       texture(sampler2D(depth_texture, linear_sampler), _autofocusPoint);
 
-  float _focus = mix(focus, samFocus.r, autofocus);
+  float _focus = samFocus.r; 0.0;//mix(focus, samFocus.r, autofocus);
   float _dof = 0.028;
   float _depth = _depth4.r;
   float _coc = 0.0;
@@ -75,7 +92,7 @@ void main(void) {
   // } else {
   //   _coc = 1.0;
   // }
-  if (_depth4.r == 0.0) {
+  if (_depth4.r == 1.0) {
     _coc = 0.5;
   } else if (abs(_depth - _focus) < _dof) {
     _coc = abs(_depth - _focus) / _dof;
@@ -91,7 +108,7 @@ void main(void) {
   float maxDD = 0.0;
   float accumDD = 0.0;
   float sumDD = 0.0;
-  for (uint i = 0; i < 100; i++) {
+  for (uint i = 0; i < 1; i++) {
     // vec2 rv = (-1.0 + 2.0 * vec2(rand(81*i+0), rand(81*i+13)));
     float a = rand(81 * i + 0) * 2.0 * 3.141592654;
     float r = sqrt(rand(81 * i + 13));
@@ -121,7 +138,9 @@ void main(void) {
   float sum = 0.0;
   float sumA = 0.0;
 
-  for (uint i = 0; i < 200; i++) {
+_coc = 0.0;
+
+  for (uint i = 0; i < 1; i++) {
     // vec2 rv = (-1.0 + 2.0 * vec2(rand(81*i+0), rand(81*i+13)));
     float a = rand(81 * i + 0) * 2.0 * 3.141592654;
     float r = sqrt(rand(81 * i + 13));
@@ -129,7 +148,7 @@ void main(void) {
     vec2 rv = vec2(r * cos(a), r * sin(a));
     // rv = normalize(rv);
 
-    offset = rv * 0.01 * amount * (_coc + accumDD) * 2.0;
+    offset = rv * 0.01 * (_coc + accumDD) * 2.0;
 
     sam = texture(sampler2D(color_texture, linear_sampler), texCoord + offset);
 
@@ -145,10 +164,12 @@ void main(void) {
   accumA /= sumA;
 
   float fog = clamp(_depth - _focus, 0.0, 1.0) / _dof;
-  fog = pow(fog * 25.0, 4.0);
+  fog = clamp(pow(fog * 25.0, 4.0), 0.0, 1.0);
 
   imageStore(
       output_texture, ivec2(gl_GlobalInvocationID.xy),
       // vec4(mix(vec3(accum), vec3(0.02, 0.04, 0.05), fog), pow(accumA, 1.0)));
-      vec4(mix(vec3(accum), vec3(0.02, 0.04, 0.05), fog), 1.0));
+      vec4(mix(vec3(accum), vec3(0.02, 0.04, 0.05), 0.0), 1.0));
+      //vec4(vec3(clamp(_coc * 100.0, 0.0, 1.0)), 1.0));
+
 }
