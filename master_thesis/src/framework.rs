@@ -70,7 +70,7 @@ fn window_setup(title: &str) -> WindowSetup {
     builder = builder.with_title(title);
     builder = builder.with_inner_size(winit::dpi::PhysicalSize {
         width: 1920,
-        height: 1080,
+        height: 1300,
     });
 
     let window = builder.build(&event_loop).unwrap();
@@ -326,7 +326,11 @@ fn start<E: ApplicationStructure>(
                     drop(frame);
 
                     if output_frame_time {
-                        println!("{},{}", start.elapsed().as_millis(), frame_start.elapsed().as_millis());
+                        println!(
+                            "{},{}",
+                            start.elapsed().as_millis(),
+                            frame_start.elapsed().as_millis()
+                        );
                     }
                     frame_start = Instant::now();
                 }

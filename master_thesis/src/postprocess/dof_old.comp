@@ -1,0 +1,78 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+  vec2 size;
+  vec2 autofocusPoint;
+
+  float dof;
+  float focus;
+  
+  float amount;  
+};
+
+layout(set = 0, binding = 0) uniform sampler linear_sampler;
+
+layout(set = 0, binding = 1) uniform texture2D color_texture;
+layout(set = 0, binding = 2) uniform texture2D depth_texture;
+
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2D output_texture;
+
+uint wang_hash(uint seed) {
+  seed = (seed ^ 61) ^ (seed >> 16);
+  seed *= 9;
+  seed = seed ^ (seed >> 4);
+  seed *= 0x27d4eb2d;
+  seed = seed ^ (seed >> 15);
+  return seed;
+}
+
+float rand(uint value) {
+  return float(wang_hash(value)) * (1.0 / 4294967296.0);
+}
+
+void main(void) {
+  vec2 texCoord = vec2(gl_GlobalInvocationID.xy) / size;
+
+  vec4 _color4 = texture(sampler2D(color_texture, linear_sampler), texCoord);
+  vec4 _depth4 = texture(sampler2D(depth_texture, linear_sampler), texCoord);
+
+  // if (_depth4.r > 0.9939)
+  //   imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
+  // else
+  //   imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(0.0));
+
+  vec4 samFocus = texture(sampler2D(depth_texture, linear_sampler), autofocusPoint);
+
+// outside = 0.9983, inside = 0.99864
+  float _focus = focus;
+  float _dof = dof;
+  _focus = samFocus.r;
+
+  float depth = _depth4.r;
+
+  if (_depth4.r == 0.0) {
+    depth = 0.5;
+  } else if (abs(depth - _focus) < _dof) {
+    depth = abs(depth - _focus) / _dof;
+  } else {
+    depth = 0.0;
+  }  
+
+  vec4 s = vec4(0.0);
+  vec4 accum = vec4(0.0);
+  float sum = 0.0;
+  vec2 offset = vec2(0, 0);
+
+  for (uint i = 0; i < 500; i++) {
+    offset = (-1.0 + 2.0 * vec2(rand(81 * i + 0), rand(81 * i + 13))) * 0.01 *
+             amount * (depth);
+    s = texture(sampler2D(color_texture, linear_sampler), texCoord + offset);
+    accum += s;
+    sum++;
+  }
+  accum /= sum;
+
+  imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(vec3(accum.rgb), accum.a));
+}

@@ -2,6 +2,7 @@ use master_thesis::camera::*;
 use master_thesis::framework;
 use master_thesis::frustrum_culler::*;
 use master_thesis::pipelines::SphereBillboardsPipeline;
+use master_thesis::postprocess::*;
 use master_thesis::pvs::*;
 use master_thesis::ssao;
 use master_thesis::structure::*;
@@ -21,6 +22,7 @@ struct ApplicationState {
     pub draw_lod: bool,
     pub draw_occluded: bool,
     pub animating: bool,
+    pub animating_reveal: f32,
 
     pub ssao_settings: [ssao::Settings; 2],
     pub ssao_modifying: usize,
@@ -66,6 +68,8 @@ pub struct Application {
 
     output_pipeline: RenderPipeline,
     output_bind_group: BindGroup,
+
+    postprocess_module: PostProcessModule,
 }
 
 impl framework::ApplicationStructure for Application {
@@ -190,7 +194,7 @@ impl framework::ApplicationStructure for Application {
         }
 
         // Pipelines
-        let billboards_pipeline = SphereBillboardsPipeline::new(
+        let billboards_pipeline = SphereBillboardsPipeline::new_normals(
             &device,
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
@@ -297,13 +301,13 @@ impl framework::ApplicationStructure for Application {
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    20,
-                    128,
+                    15,
+                    256,
                 )
             })
             .collect();
 
-        let n = 13;
+        let n = 7;
         let n3 = n * n * n;
 
         let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
@@ -318,9 +322,9 @@ impl framework::ApplicationStructure for Application {
 
             let radius = structures[structure_id].borrow_mut().bounding_radius();
             let position = vec3(
-                x * radius * 1.5 * n as f32,
-                y * radius * 1.5 * n as f32,
-                z * radius * 1.5 * n as f32,
+                x * radius * 1.75 * n as f32,
+                y * radius * 1.75 * n as f32,
+                z * radius * 1.75 * n as f32,
             );
             let translation = translation(&position);
 
@@ -330,15 +334,19 @@ impl framework::ApplicationStructure for Application {
         let mut indices_to_delete = Vec::new();
         for i in 0..structures_transforms.len() {
             for j in (i + 1)..structures_transforms.len() {
-                let r1 = structures[structures_transforms[i].0].borrow().bounding_radius();
-                let r2 = structures[structures_transforms[j].0].borrow().bounding_radius();
+                let r1 = structures[structures_transforms[i].0]
+                    .borrow()
+                    .bounding_radius();
+                let r2 = structures[structures_transforms[j].0]
+                    .borrow()
+                    .bounding_radius();
 
                 let pos1 = structures_transforms[i].1.column(3).xyz();
                 let pos2 = structures_transforms[j].1.column(3).xyz();
 
                 let dist = distance(&pos1, &pos2);
                 let dist = dist - r1 - r2;
-                
+
                 if dist < 0.0 {
                     indices_to_delete.push(j);
                 }
@@ -421,6 +429,8 @@ impl framework::ApplicationStructure for Application {
                 .create_view(&TextureViewDescriptor::default()),
         ];
 
+        let postprocess_module = PostProcessModule::new(device, width, height);
+
         let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
         let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
 
@@ -474,16 +484,16 @@ impl framework::ApplicationStructure for Application {
                         },
                         count: None,
                     },
-                    BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Uint,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
+                    // BindGroupLayoutEntry {
+                    //     binding: 5,
+                    //     visibility: ShaderStage::all(),
+                    //     ty: BindingType::SampledTexture {
+                    //         dimension: TextureViewDimension::D2,
+                    //         component_type: TextureComponentType::Uint,
+                    //         multisampled: false,
+                    //     },
+                    //     count: None,
+                    // },
                 ],
             });
 
@@ -492,7 +502,7 @@ impl framework::ApplicationStructure for Application {
             bind_group_layouts: &[&output_bind_group_layout],
             push_constant_ranges: &[PushConstantRange {
                 stages: ShaderStage::FRAGMENT,
-                range: 0..16,
+                range: 0..24,
             }],
         });
 
@@ -569,10 +579,10 @@ impl framework::ApplicationStructure for Application {
                     binding: 4,
                     resource: BindingResource::TextureView(&depth_texture),
                 },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: BindingResource::TextureView(&instance_texture),
-                },
+                // BindGroupEntry {
+                //     binding: 5,
+                //     resource: BindingResource::TextureView(&instance_texture),
+                // },
             ],
         });
 
@@ -580,28 +590,31 @@ impl framework::ApplicationStructure for Application {
             draw_lod: true,
             draw_occluded: false,
             animating: false,
+            animating_reveal: structures[0].borrow().bounding_radius(),
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: 60000.0,
+                    radius: 1000.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
-                    horizonAngleThreshold: 0.1,
-                    sharpness: 1.0,
-                    detailShadowStrength: 5.0,
-                    blurPassCount: 8,
+                    horizonAngleThreshold: 0.0,
+                    sharpness: 0.0,
+                    detailShadowStrength: 0.0,
+                    blurPassCount: 1,
+                    x: 1.0,
                     ..Default::default()
                 },
                 ssao::Settings {
-                    radius: 32.0,
+                    radius: 100.0,
                     projection: camera.ubo().projection,
-                    shadowMultiplier: 3.0,
-                    shadowPower: 2.0,
+                    shadowMultiplier: 1.0,
+                    shadowPower: 1.0,
                     horizonAngleThreshold: 0.0,
                     sharpness: 0.0,
-                    detailShadowStrength: 4.0,
-                    blurPassCount: 8,
+                    detailShadowStrength: 0.0,
+                    blurPassCount: 1,
+                    x: 1.0,
                     ..Default::default()
                 },
             ],
@@ -614,7 +627,7 @@ impl framework::ApplicationStructure for Application {
             render_mode: 0,
         };
 
-        let start_time = Instant::now();
+        let start_time = Instant::now();        
 
         Self {
             width,
@@ -647,6 +660,8 @@ impl framework::ApplicationStructure for Application {
 
             output_pipeline,
             output_bind_group,
+
+            postprocess_module,
         }
     }
 
@@ -738,7 +753,7 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::Down => {
                                 self.state.ssao_parameter +=
-                                    if self.state.ssao_parameter == 5 { 0 } else { 1 };
+                                    if self.state.ssao_parameter == 6 { 0 } else { 1 };
                                 changed = true;
                                 self.state.fog_modifying = false;
                             }
@@ -747,6 +762,24 @@ impl framework::ApplicationStructure for Application {
                             }
                             VirtualKeyCode::S => {
                                 self.state.render_mode = (self.state.render_mode + 1) % 3;
+                            }
+                            // Set focus
+                            VirtualKeyCode::N => {
+                                let addsub = 10.0f32.powf(
+                                    -self.postprocess_module.options.focus.log10().abs().ceil(),
+                                );
+                                self.postprocess_module.options.focus += addsub;
+                                println!("Focus: {}", self.postprocess_module.options.focus);
+                            }
+                            VirtualKeyCode::M => {
+                                let addsub = 10.0f32.powf(
+                                    -self.postprocess_module.options.dof.log10().abs().ceil(),
+                                );
+                                self.postprocess_module.options.dof += addsub;
+                                println!("Dof: {}", self.postprocess_module.options.dof);
+                            }
+                            VirtualKeyCode::Space => {
+
                             }
                             _ => {}
                         };
@@ -820,6 +853,15 @@ impl framework::ApplicationStructure for Application {
                 },
                 self.state.ssao_settings[self.state.ssao_modifying].radius,
             );
+            println!(
+                "[{}] Pow blend: {}",
+                if self.state.ssao_parameter != 6 {
+                    " "
+                } else {
+                    "*"
+                },
+                self.state.ssao_settings[self.state.ssao_modifying].x,
+            );
 
             println!(
                 "[{}] Fog: {}",
@@ -840,8 +882,6 @@ impl framework::ApplicationStructure for Application {
         queue: &wgpu::Queue,
         spawner: &impl futures::task::LocalSpawn,
     ) {
-        // println!("{} {} {}", self.camera.yaw, self.camera.pitch, self.camera.distance);
-
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
@@ -852,7 +892,14 @@ impl framework::ApplicationStructure for Application {
 
         //================== DATA UPLOAD
         if self.state.animating {
-            self.camera.set_distance(self.camera.distance() - 30.0);
+            let sub = self.structures[0].borrow().bounding_radius() / 100.0;
+            if self.camera.distance() <= self.structures[0].borrow().bounding_radius() * 2.0 {
+                self.state.animating_reveal -= if self.state.animating_reveal <= 0.0 { 0.0 } else { sub }; 
+                println!("{}", self.state.animating_reveal);
+            } else {
+                self.state.animating_reveal = self.structures[0].borrow().bounding_radius();
+                self.camera.set_distance(self.camera.distance() - 100.0);
+            }
         }
         self.camera.update_gpu(queue);
 
@@ -901,7 +948,6 @@ impl framework::ApplicationStructure for Application {
 
         //================== RENDER MOLECULES
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[
@@ -915,6 +961,14 @@ impl framework::ApplicationStructure for Application {
                     },
                     RenderPassColorAttachmentDescriptor {
                         attachment: &self.instance_texture,
+                        resolve_target: None,
+                        ops: Operations {
+                            load: LoadOp::Clear(Color::BLACK),
+                            store: true,
+                        },
+                    },
+                    RenderPassColorAttachmentDescriptor {
+                        attachment: &self.normals_texture,
                         resolve_target: None,
                         ops: Operations {
                             load: LoadOp::Clear(Color::BLACK),
@@ -965,20 +1019,50 @@ impl framework::ApplicationStructure for Application {
                 let distance = (direction.magnitude() - 2.0 * structure.bounding_radius()).max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
-                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
+                rpass.set_push_constants(
+                    ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                    4,
+                    cast_slice(&[(i + 1) as u32]),
+                );
                 if i != 0 {
-                    rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[structure.bounding_radius()]));
+                    rpass.set_push_constants(
+                        ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                        8,
+                        cast_slice(&[structure.bounding_radius()]),
+                    );
                 } else {
-                    rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[0.0f32]));
+                    rpass.set_push_constants(
+                        ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                        8,
+                        cast_slice(&[self.state.animating_reveal]),
+                    );
                 }
 
-                let draw_occluded = i == 0 || self.state.draw_occluded;
+                let draw_occluded = self.state.draw_occluded || (distance < structure.bounding_radius() * 2.0 && i == 0);
                 // let draw_occluded =
                 //     self.state.draw_occluded || distance < structure.bounding_radius() * 2.0;
                 let draw_lod = self.state.draw_lod;
 
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {
+                    let dont_cull = ["A", "G", "U", "C", "P", "NTD", "CTD"];
+                    let molecule_name = structure.molecules()[molecule_id].name();
+                    if i == 0 {
+                        if dont_cull.contains(&molecule_name) {
+                            rpass.set_push_constants(
+                                ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                                8,
+                                cast_slice(&[structure.bounding_radius()]),
+                            );
+                        } else {
+                            rpass.set_push_constants(
+                                ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                                8,
+                                cast_slice(&[self.state.animating_reveal]),
+                            );
+                        }
+                    }
+
                     // Bind its data
                     rpass.set_bind_group(1, &self.structures_bgs[structure_id][molecule_id], &[]);
 
@@ -1034,26 +1118,37 @@ impl framework::ApplicationStructure for Application {
             &mut encoder,
             &self.state.ssao_settings[0],
             &self.depth_texture,
-            None, // Some(&self.normals_texture),
+            // None,
+            Some(&self.normals_texture),
             &self.ssao_finals[0],
         );
-
         queue.submit(Some(encoder.finish()));
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         self.ssao_module.compute(
             device,
             queue,
             &mut encoder,
             &self.state.ssao_settings[1],
             &self.depth_texture,
-            None, // Some(&self.normals_texture),
+            // None,
+            Some(&self.normals_texture),
             &self.ssao_finals[1],
         );
-
         queue.submit(Some(encoder.finish()));
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
 
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        self.postprocess_module.compute(
+            device,
+            &mut encoder,
+            &self.output_texture,
+            &self.depth_texture,
+            &self.instance_texture,
+            time,
+        );
+        queue.submit(Some(encoder.finish()));
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let depth_unpack_mul = -self.camera.ubo().projection[(2, 3)];
             let mut depth_unpack_add = -self.camera.ubo().projection[(2, 2)];
@@ -1082,7 +1177,12 @@ impl framework::ApplicationStructure for Application {
             rpass.set_push_constants(
                 ShaderStage::FRAGMENT,
                 12,
-                cast_slice(&[self.state.render_mode]),
+                cast_slice(&[self.state.ssao_settings[0].x]),
+            );
+            rpass.set_push_constants(
+                ShaderStage::FRAGMENT,
+                16,
+                cast_slice(&[self.state.ssao_settings[1].x]),
             );
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);

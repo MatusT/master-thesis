@@ -187,6 +187,8 @@ pub struct Settings {
 
     /// [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving similarity weighting for neighbouring pixels. Should be greater than 0.0.
     pub bilateralSimilarityDistanceSigma: f32,
+    
+    pub x: f32,
 }
 
 impl Settings {
@@ -198,6 +200,7 @@ impl Settings {
             3 => self.sharpness += 0.1,
             4 => self.detailShadowStrength += 0.1,
             5 => self.radius += 10.0,
+            6 => self.x += 0.1,
             _ => {}
         };
     }
@@ -210,6 +213,7 @@ impl Settings {
             3 => self.sharpness -= 0.1,
             4 => self.detailShadowStrength -= 0.1,
             5 => self.radius -= 10.0,
+            6 => self.x -= 0.1,
             _ => {}
         };
     }
@@ -233,6 +237,7 @@ impl Default for Settings {
             generateNormals: false,
             bilateralSigmaSquared: 5.0,
             bilateralSimilarityDistanceSigma: 0.01,
+            x: 1.0,
         }
     }
 }

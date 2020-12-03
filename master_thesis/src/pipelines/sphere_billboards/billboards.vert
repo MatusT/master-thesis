@@ -112,7 +112,9 @@ void main() {
 
   instance = object_id * 100000 + uint(gl_InstanceIndex);
 
-  if (translation.z > cut) {
+  const vec4 local_center =
+      (local_model_matrix * vec4(positions[gl_VertexIndex / 3].xyz, 1.0)) + vec4(offset, offset, offset, 0.0);
+  if (local_center.x > cut) {
     gl_Position = vec4(0.0);
   } else {
     gl_Position = position_cs;

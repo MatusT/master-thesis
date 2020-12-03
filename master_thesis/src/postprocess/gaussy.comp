@@ -1,0 +1,41 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+  vec2 size;
+  float amount;
+};
+
+layout(set = 0, binding = 0) uniform sampler linear_sampler;
+layout(set = 0, binding = 1) uniform texture2D input_texture;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D output_texture;
+
+void main(void) {
+  const vec2 uv = vec2(gl_GlobalInvocationID.xy) / size;
+  const float offset = 1.0 / (size.y);
+
+  vec4 texel, color = vec4(0.0);
+  int i;
+  float w, sum = 0.0;
+
+  if (amount == 0) {
+    color = texture(sampler2D(input_texture, linear_sampler), uv);
+    sum = 1.0;
+  } else {
+    int iAmount = int(amount + 1.0);
+    for (i = -iAmount; i <= iAmount; i++) {
+      vec2 sc = uv + vec2(0.0, i * offset);
+      if (sc.x < 0 || sc.x > 1 || sc.y < 0 || sc.y > 1) {
+        continue;
+      }
+      texel = texture(sampler2D(input_texture, linear_sampler), sc);
+      w = exp(-pow(i / amount * 1.5, 2.0));
+      // w = 1.0;
+      color += texel * w;
+      sum += w;
+    }
+  }
+
+  imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), color / sum);
+}

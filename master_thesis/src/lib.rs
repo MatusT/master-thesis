@@ -3,6 +3,7 @@ pub mod framework;
 pub mod frustrum_culler;
 pub mod hilbert;
 pub mod pipelines;
+pub mod postprocess;
 pub mod pvs;
 pub mod ssao;
 pub mod structure;

@@ -47,6 +47,7 @@ pub struct Application {
     output_texture: TextureView,
 
     camera: RotationCamera,
+    camera_back: RotationCamera,
     camera_bind_group_layout: BindGroupLayout,
 
     billboards_pipeline: SphereBillboardsPipeline,
@@ -163,13 +164,18 @@ impl framework::ApplicationStructure for Application {
         let mut total_atoms = 0;
         let mut total_molecules = 0;
         for molecule_id in 0..structures[0].borrow().molecules().len() {
-            let molecule_atoms = structures[0].borrow().molecules()[molecule_id].lods()[0].1.end;
+            let molecule_atoms = structures[0].borrow().molecules()[molecule_id].lods()[0]
+                .1
+                .end;
             let molecules = structures[0].borrow().transforms()[molecule_id].1;
 
             total_atoms += molecules * molecule_atoms as usize;
             total_molecules += molecules;
         }
-        println!("Loaded structure with {} molecules and {} atoms", total_molecules, total_atoms);
+        println!(
+            "Loaded structure with {} molecules and {} atoms",
+            total_molecules, total_atoms
+        );
 
         let mut colors: std::collections::HashMap<String, Vec<f32>> =
             ron::de::from_str(&std::fs::read_to_string("colors.ron").unwrap())
@@ -199,7 +205,19 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            2.0 * r,
+            2.5 * r,
+            100.0,
+        );
+        let mut camera_back = RotationCamera::new(
+            &device,
+            &camera_bind_group_layout,
+            // &ortho_rh_zo(-r, r, -r, r, 0.0, 2.0 * r),
+            &reversed_infinite_perspective_rh_zo(
+                sc_desc.width as f32 / sc_desc.height as f32,
+                0.785398163,
+                0.1,
+            ),
+            2.5 * r,
             100.0,
         );
 
@@ -305,7 +323,7 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
 
-        let reduce = 1024u32;
+        let reduce = 2048u32;
         let structures_pvs = structures
             .iter()
             .map(|structure| {
@@ -313,7 +331,7 @@ impl framework::ApplicationStructure for Application {
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    24,
+                    2,
                     reduce as usize,
                 )
             })
@@ -604,6 +622,7 @@ impl framework::ApplicationStructure for Application {
             output_texture,
 
             camera,
+            camera_back,
             camera_bind_group_layout,
 
             billboards_pipeline,
@@ -872,9 +891,15 @@ impl framework::ApplicationStructure for Application {
 
         //================== DATA UPLOAD
         if self.state.animating {
-            self.camera.set_distance(self.camera.distance() - 30.0);
+            // self.camera.set_distance(self.camera.distance() - 30.0);
+            self.camera.set_yaw(self.camera.yaw + 0.25f64.to_radians());
         }
+        self.camera_back.set_distance(self.camera.distance());
+        self.camera_back.set_yaw(self.camera.yaw() + std::f64::consts::PI);
+        self.camera_back.set_pitch(self.camera.pitch());      
+
         self.camera.update_gpu(queue);
+        self.camera_back.update_gpu(queue);
 
         if self.reduce as usize != self.structures_pvs[0].ranges_limit() {
             self.structures_pvs[0] = self.pvs_module.pvs_field(
@@ -923,13 +948,13 @@ impl framework::ApplicationStructure for Application {
                 computed_count += 1;
                 println!("Occlusion time: {}", start.elapsed().as_millis());
             }
-            // if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
-            //     device,
-            //     queue,
-            //     -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
-            // )) {
-            //     computed_count += 1;
-            // }
+            if futures::executor::block_on(self.structures_pvs[0].compute_from_eye(
+                device,
+                queue,
+                -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
+            )) {
+                computed_count += 1;
+            }
         }
 
         //================== RENDER MOLECULES
@@ -967,10 +992,15 @@ impl framework::ApplicationStructure for Application {
 
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
-            rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
 
             let draw_occluded = self.state.draw_occluded;
             let draw_lod = self.state.draw_lod;
+            
+            if draw_occluded {
+                rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
+            } else {
+                rpass.set_bind_group(0, &self.camera_back.bind_group(), &[]);
+            }
 
             for i in 0..self.structures_transforms.len() {
                 let structure_id = self.structures_transforms[i].0;
@@ -991,8 +1021,16 @@ impl framework::ApplicationStructure for Application {
                 .max(1.0);
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
-                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 4, cast_slice(&[(i + 1) as u32]));
-                rpass.set_push_constants(ShaderStage::VERTEX | ShaderStage::FRAGMENT, 8, cast_slice(&[0.0f32]));
+                rpass.set_push_constants(
+                    ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                    4,
+                    cast_slice(&[(i + 1) as u32]),
+                );
+                rpass.set_push_constants(
+                    ShaderStage::VERTEX | ShaderStage::FRAGMENT,
+                    8,
+                    cast_slice(&[250.0f32]),
+                );
 
                 // For each molecule type
                 for molecule_id in 0..structure.molecules().len() {

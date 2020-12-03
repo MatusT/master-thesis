@@ -453,7 +453,7 @@ impl StructurePvsField {
                 let distance = ranges[range_index].0 - ranges[range_index - 1].1;
 
                 // If we find a gap
-                if distance > 0 {
+                if distance > 0 && structure.molecules()[molecule_index].name() != "S" {
                     // Check that it doesn't cross faces
                     // - potentially large range
                     for face in structure.transforms_sides().unwrap()[molecule_index].iter() {

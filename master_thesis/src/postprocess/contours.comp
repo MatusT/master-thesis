@@ -1,0 +1,33 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler linear_sampler;
+layout(set = 0, binding = 1) uniform texture2D input_color;
+layout(set = 0, binding = 2) uniform utexture2D input_instance;
+layout(set = 0, binding = 3, rgba8) uniform writeonly image2D output_texture;
+
+void main() {
+    // Contour based on instance ID differences
+    const vec2 resolution = textureSize(usampler2D(input_instance, linear_sampler), 0);
+    const vec2 uv = vec2(gl_GlobalInvocationID.xy) / resolution;
+    const float w_step = 1.0 / resolution.x;
+    const float h_step = 1.0 / resolution.y;   
+
+    const vec3 color = texture(sampler2D(input_color, linear_sampler), uv).rgb;
+
+    const int X = int(texture(usampler2D(input_instance, linear_sampler), uv).r);
+    const int R = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(w_step, 0)).r);
+    const int L = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(-w_step, 0)).r);
+    const int T = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(0, h_step)).r);
+    const int B = int(texture(usampler2D(input_instance, linear_sampler), uv + vec2(0, -h_step)).r);
+
+    if ( (X == R) && (X == L) && (X == T) && (X == B) )
+    { //~ current pixel is NOT on the edge
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1.0));
+    }
+    else
+    { //~ current pixel lies on the edge
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.7), 1.0));
+    }
+}
