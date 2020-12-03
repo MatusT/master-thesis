@@ -19,7 +19,7 @@ void main(void)
 	const vec4 color = texture(sampler2D(input_texture, linear_sampler), uv).rgba;
 	const float brightness = color.r + color.g + color.b;
 	
-	if(brightness > 0.7) {
+	if(brightness > 0.3) {
 		imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(color));
 	} else {
 		imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(0.0));

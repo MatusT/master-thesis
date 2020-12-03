@@ -28,9 +28,9 @@ layout(set = 0, binding = 1) uniform texture2D input_color;
 layout(set = 0, binding = 2) uniform texture2D input_ao1;
 layout(set = 0, binding = 3) uniform texture2D input_ao2;
 layout(set = 0, binding = 4) uniform texture2D input_depth;
-layout(set = 0, binding = 5) uniform texture2D input_bloom;
+// layout(set = 0, binding = 5) uniform texture2D input_bloom;
 
-layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D output_color;
+layout(set = 0, binding = 5, rgba32f) uniform writeonly image2D output_color;
 
 void main() {
     // const vec2 resolution = textureSize(sampler2D(input_color, linear_sampler), 0);
@@ -40,7 +40,7 @@ void main() {
     const float ao_far = 1.0 - texture(sampler2D(input_ao1, linear_sampler), uv).r;
     const float ao_near = 1.0 - texture(sampler2D(input_ao2, linear_sampler), uv).r;
     const float depth = ScreenSpaceToViewSpaceDepth(texture(sampler2D(input_depth, linear_sampler), uv).r);
-    const vec4 bloom = texture(sampler2D(input_bloom, linear_sampler), uv).rgba;
+    // const vec4 bloom = texture(sampler2D(input_bloom, linear_sampler), uv).rgba;
 
     // const vec3 final_color = (bloom.rgb * bloom.a + color.rgb * (1.0 - bloom.a)).rgb;
     // const vec3 final_color = vec3(color);
