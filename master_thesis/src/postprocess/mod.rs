@@ -235,7 +235,7 @@ impl PostProcessModule {
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
                         dimension: TextureViewDimension::D2,
-                        format: TextureFormat::Rgba32Float,
+                        format: TextureFormat::Rgba8Unorm,
                         readonly: false,
                     },
                     count: None,
@@ -592,7 +592,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
+                    resource: BindingResource::TextureView(color),
                 },
             ],
         });
@@ -693,24 +693,24 @@ impl PostProcessModule {
             cpass.dispatch(x, y, 1);
         }
 
-        // Depth of field
-        {
-            cpass.set_pipeline(&self.dof_pass);
-            cpass.set_bind_group(0, &dof_bg, &[]);
-            cpass.set_push_constants(
-                0,
-                cast_slice(&[
-                    self.width as f32,
-                    self.height as f32,
-                    self.options.focus_point.x,
-                    self.options.focus_point.y,
-                    self.options.dof,
-                    self.options.focus,
-                    self.options.focus_amount,
-                ]),
-            );
-            cpass.dispatch(x, y, 1);
-        }
+        // // Depth of field
+        // {
+        //     cpass.set_pipeline(&self.dof_pass);
+        //     cpass.set_bind_group(0, &dof_bg, &[]);
+        //     cpass.set_push_constants(
+        //         0,
+        //         cast_slice(&[
+        //             self.width as f32,
+        //             self.height as f32,
+        //             self.options.focus_point.x,
+        //             self.options.focus_point.y,
+        //             self.options.dof,
+        //             self.options.focus,
+        //             self.options.focus_amount,
+        //         ]),
+        //     );
+        //     cpass.dispatch(x, y, 1);
+        // }
 
         // // Chroma
         // {

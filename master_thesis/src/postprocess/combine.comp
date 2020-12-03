@@ -45,7 +45,7 @@ void main() {
     // const vec3 final_color = vec3(color);
 
     // Fog computation
-    // const float fog = 1.0 - (clamp(0.0, depth_distance, depth) / depth_distance);
+    const float fog = 1.0 - clamp(0.0, fog_distance, depth) / fog_distance;
 
     // SSAO interpolation
     // const float ao = (ao1 + ao2) / 2.0;
@@ -61,8 +61,8 @@ void main() {
     //     final_ao = (1.0 - v) * ao_near + v * ao_far;
     // }
     // float final_ao = clamp(ao_far * ao_near * 2.0, 0.0, 1.0);
-    float final_ao = clamp(pow(ao_far, pow_far) * pow(ao_near, pow_near), 0.0, 1.0);
+    // float final_ao = clamp(pow(ao_far, pow_far) * pow(ao_near, pow_near), 0.0, 1.0);
     // float final_ao = clamp(pow(ao_far, pow_far), 0.0, 1.0);
 
-    imageStore(output_color, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
+    imageStore(output_color, ivec2(gl_GlobalInvocationID.xy), vec4(fog, fog, fog, 1.0));
 }
