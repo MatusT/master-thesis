@@ -525,7 +525,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&output_texture),
+                    resource: BindingResource::TextureView(&postprocess_module.temporary_texture),
                 },
             ],
         });
@@ -538,7 +538,7 @@ impl framework::ApplicationStructure for Application {
 
             ssao_settings: [
                 ssao::Settings {
-                    radius: 1000.0,
+                    radius: 1200.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -546,11 +546,11 @@ impl framework::ApplicationStructure for Application {
                     sharpness: 0.0,
                     detailShadowStrength: 0.0,
                     blurPassCount: 1,
-                    x: 1.0,
+                    x: 1.5,
                     ..Default::default()
                 },
                 ssao::Settings {
-                    radius: 100.0,
+                    radius: 50.0,
                     projection: camera.ubo().projection,
                     shadowMultiplier: 1.0,
                     shadowPower: 1.0,
@@ -558,7 +558,7 @@ impl framework::ApplicationStructure for Application {
                     sharpness: 0.0,
                     detailShadowStrength: 0.0,
                     blurPassCount: 1,
-                    x: 1.0,
+                    x: 1.7,
                     ..Default::default()
                 },
             ],
