@@ -29,7 +29,7 @@ layout(set = 0, binding = 2) uniform texture2D input_ao1;
 layout(set = 0, binding = 3) uniform texture2D input_ao2;
 layout(set = 0, binding = 4) uniform texture2D input_depth;
 
-layout(set = 0, binding = 5, rgba8) uniform writeonly image2D output_color;
+layout(set = 0, binding = 5, rgba32f) uniform writeonly image2D output_color;
 
 void main() {
     // const vec2 resolution = textureSize(sampler2D(input_color, linear_sampler), 0);

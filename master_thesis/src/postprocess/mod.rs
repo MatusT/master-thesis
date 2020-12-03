@@ -343,7 +343,7 @@ impl PostProcessModule {
                         ty: BindingType::StorageTexture {
                             dimension: TextureViewDimension::D2,
                             readonly: false,
-                            format: TextureFormat::Rgba8Unorm,
+                            format: TextureFormat::Rgba32Float,
                         },
                         count: None,
                     },
