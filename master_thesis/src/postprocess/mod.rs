@@ -1,6 +1,7 @@
 use bytemuck::*;
 use nalgebra_glm::*;
 use wgpu::*;
+use crate::camera::*;
 
 #[derive(Copy, Clone)]
 pub struct PostProcessOptions {
@@ -15,6 +16,9 @@ pub struct PostProcessOptions {
 
     // Monotone
     pub gauss_amount: f32,
+
+    pub ssao_pow: [f32; 2],
+    pub fog: f32,
 }
 
 impl Default for PostProcessOptions {
@@ -28,6 +32,9 @@ impl Default for PostProcessOptions {
             focus_amount: 2.0,
 
             gauss_amount: 4.0,
+
+            ssao_pow: [1.0f32; 2],
+            fog: 10000.0,
         }
     }
 }
@@ -43,10 +50,12 @@ pub struct PostProcessModule {
     monotone_pass: ComputePipeline,
     contours_pass: ComputePipeline,
     gauss_pass: [ComputePipeline; 2],
+    combine_pass: ComputePipeline,
 
     chroma_bgl: BindGroupLayout,
     dof_bgl: BindGroupLayout,
     contours_bgl: BindGroupLayout,
+    combine_bgl: BindGroupLayout,
 
     linear_clamp_sampler: Sampler,
 
@@ -62,6 +71,7 @@ impl PostProcessModule {
         let contours_shader = device.create_shader_module(include_spirv!("contours.comp.spv"));
         let gaussx_shader = device.create_shader_module(include_spirv!("gaussx.comp.spv"));
         let gaussy_shader = device.create_shader_module(include_spirv!("gaussy.comp.spv"));
+        let combine_shader = device.create_shader_module(include_spirv!("combine.comp.spv"));
 
         let chroma_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Chroma Bind Group Layout"),
@@ -277,6 +287,87 @@ impl PostProcessModule {
 
         let gauss_pass = [gaussy_pass, gaussx_pass];
 
+        let combine_bgl =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Combine bing group layout"),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::Sampler { comparison: false },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::SampledTexture {
+                            dimension: TextureViewDimension::D2,
+                            component_type: TextureComponentType::Float,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: ShaderStage::all(),
+                        ty: BindingType::StorageTexture {
+                            dimension: TextureViewDimension::D2,
+                            readonly: false,
+                            format: TextureFormat::Rgba8Unorm,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let combine_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Combine Pipeline Layout"),
+            bind_group_layouts: &[&combine_bgl],
+            push_constant_ranges: &[PushConstantRange {
+                stages: ShaderStage::COMPUTE,
+                range: 0..28
+            }],
+        });
+
+        let combine_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Combine Pass"),
+            layout: Some(&combine_pl),
+            compute_stage: ProgrammableStageDescriptor {
+                module: &combine_shader,
+                entry_point: "main",
+            },
+        });
+
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
             address_mode_u: AddressMode::ClampToEdge,
             address_mode_v: AddressMode::ClampToEdge,
@@ -349,10 +440,12 @@ impl PostProcessModule {
             monotone_pass,
             contours_pass,
             gauss_pass,
+            combine_pass,
 
             chroma_bgl,
             dof_bgl,
             contours_bgl,
+            combine_bgl,
 
             linear_clamp_sampler,
             temporary_texture,
@@ -362,13 +455,21 @@ impl PostProcessModule {
 
     pub fn compute(
         &mut self,
+        camera: &mut dyn Camera,
         device: &Device,
         encoder: &mut CommandEncoder,
         color: &TextureView,
         depth: &TextureView,
+        ssao: [&TextureView; 2],
         instances: &TextureView,
         time: f32,
     ) {
+        let depth_unpack_mul = -camera.ubo().projection[(2, 3)];
+        let mut depth_unpack_add = -camera.ubo().projection[(2, 2)];
+        if depth_unpack_mul * depth_unpack_add < 0.0 {
+            depth_unpack_add = -depth_unpack_add;
+        }
+
         // Create bind groups
         let monotone_bg = device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -385,6 +486,37 @@ impl PostProcessModule {
                 BindGroupEntry {
                     binding: 2,
                     resource: BindingResource::TextureView(&self.bloom_texture[0]),
+                },
+            ],
+        });
+
+        let combine_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Combine bind group"),
+            layout: &self.combine_bgl,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Sampler(&self.linear_clamp_sampler),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(color),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(ssao[0]),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(ssao[1]),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: BindingResource::TextureView(depth),
+                },
+                BindGroupEntry {
+                    binding: 5,
+                    resource: BindingResource::TextureView(&self.temporary_texture),
                 },
             ],
         });
@@ -437,7 +569,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(color),
+                    resource: BindingResource::TextureView(&self.temporary_texture),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -445,7 +577,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(color),
                 },
             ],
         });
@@ -460,7 +592,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(color),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -468,7 +600,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(color),
+                    resource: BindingResource::TextureView(&self.temporary_texture),
                 },
             ],
         });
@@ -518,6 +650,26 @@ impl PostProcessModule {
         //     cpass.set_push_constants(0, cast_slice(&[self.width as f32, self.height as f32, self.options.gauss_amount]));
         //     cpass.dispatch(x, y, 1);
         // }
+
+
+        // Combine
+        {
+            cpass.set_pipeline(&self.combine_pass);
+            cpass.set_bind_group(0, &combine_bg, &[]);
+            cpass.set_push_constants(
+                0,
+                cast_slice(&[self.width as f32, self.height as f32, depth_unpack_mul, depth_unpack_add, self.options.fog]),
+            );
+            cpass.set_push_constants(
+                20,
+                cast_slice(&[self.options.ssao_pow[0] as f32]),
+            );
+            cpass.set_push_constants(
+                24,
+                cast_slice(&[self.options.ssao_pow[0] as f32]),
+            );
+            cpass.dispatch(x, y, 1);
+        }
 
         // Contours
         {

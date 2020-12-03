@@ -454,46 +454,6 @@ impl framework::ApplicationStructure for Application {
                         },
                         count: None,
                     },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // BindGroupLayoutEntry {
-                    //     binding: 5,
-                    //     visibility: ShaderStage::all(),
-                    //     ty: BindingType::SampledTexture {
-                    //         dimension: TextureViewDimension::D2,
-                    //         component_type: TextureComponentType::Uint,
-                    //         multisampled: false,
-                    //     },
-                    //     count: None,
-                    // },
                 ],
             });
 
@@ -556,7 +516,7 @@ impl framework::ApplicationStructure for Application {
         });
 
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Output bind group"),
             layout: &output_bind_group_layout,
             entries: &[
                 BindGroupEntry {
@@ -567,22 +527,6 @@ impl framework::ApplicationStructure for Application {
                     binding: 1,
                     resource: BindingResource::TextureView(&output_texture),
                 },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::TextureView(&ssao_finals[0]),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: BindingResource::TextureView(&ssao_finals[1]),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: BindingResource::TextureView(&depth_texture),
-                },
-                // BindGroupEntry {
-                //     binding: 5,
-                //     resource: BindingResource::TextureView(&instance_texture),
-                // },
             ],
         });
 
@@ -1138,11 +1082,15 @@ impl framework::ApplicationStructure for Application {
         queue.submit(Some(encoder.finish()));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        self.postprocess_module.options.ssao_pow = [self.state.ssao_settings[0].x, self.state.ssao_settings[1].x];
+        self.postprocess_module.options.fog = self.state.fog_distance;
         self.postprocess_module.compute(
+            &mut self.camera,
             device,
             &mut encoder,
             &self.output_texture,
             &self.depth_texture,
+            [&self.ssao_finals[0], &self.ssao_finals[1]],
             &self.instance_texture,
             time,
         );
@@ -1150,11 +1098,6 @@ impl framework::ApplicationStructure for Application {
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-            let depth_unpack_mul = -self.camera.ubo().projection[(2, 3)];
-            let mut depth_unpack_add = -self.camera.ubo().projection[(2, 2)];
-            if depth_unpack_mul * depth_unpack_add < 0.0 {
-                depth_unpack_add = -depth_unpack_add;
-            }
 
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
@@ -1169,21 +1112,6 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
-            rpass.set_push_constants(
-                ShaderStage::FRAGMENT,
-                0,
-                cast_slice(&[depth_unpack_mul, depth_unpack_add, self.state.fog_distance]),
-            );
-            rpass.set_push_constants(
-                ShaderStage::FRAGMENT,
-                12,
-                cast_slice(&[self.state.ssao_settings[0].x]),
-            );
-            rpass.set_push_constants(
-                ShaderStage::FRAGMENT,
-                16,
-                cast_slice(&[self.state.ssao_settings[1].x]),
-            );
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }
