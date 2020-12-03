@@ -585,7 +585,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
+                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
                 },
                 BindGroupEntry {
                     binding: 2,
