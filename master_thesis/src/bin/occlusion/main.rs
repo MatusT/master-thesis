@@ -525,7 +525,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&postprocess_module.temporary_texture),
+                    resource: BindingResource::TextureView(&output_texture),
                 },
             ],
         });

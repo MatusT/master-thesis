@@ -59,7 +59,7 @@ pub struct PostProcessModule {
 
     linear_clamp_sampler: Sampler,
 
-    pub temporary_texture: TextureView,
+    pub temporary_textures: [TextureView; 2],
     pub bloom_texture: [TextureView; 2],
 }
 
@@ -235,7 +235,7 @@ impl PostProcessModule {
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
                         dimension: TextureViewDimension::D2,
-                        format: TextureFormat::Rgba8Unorm,
+                        format: TextureFormat::Rgba32Float,
                         readonly: false,
                     },
                     count: None,
@@ -380,7 +380,7 @@ impl PostProcessModule {
             ..Default::default()
         });
 
-        let temporary_texture = device
+        let temporary_textures = [device
             .create_texture(&TextureDescriptor {
                 label: Some("Temporary texture"),
                 size: Extent3d {
@@ -391,10 +391,25 @@ impl PostProcessModule {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8Unorm,
+                format: TextureFormat::Rgba32Float,
                 usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
             })
-            .create_view(&TextureViewDescriptor::default());
+            .create_view(&TextureViewDescriptor::default()),
+            device.create_texture(&TextureDescriptor {
+                label: Some("Temporary texture"),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba32Float,
+                usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
+            })
+            .create_view(&TextureViewDescriptor::default())
+            ];
 
         let bloom_texture = [
             device
@@ -448,7 +463,7 @@ impl PostProcessModule {
             combine_bgl,
 
             linear_clamp_sampler,
-            temporary_texture,
+            temporary_textures,
             bloom_texture,
         }
     }
@@ -516,7 +531,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 5,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
                 },
             ],
         });
@@ -569,7 +584,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -577,7 +592,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(color),
+                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
                 },
             ],
         });
@@ -592,7 +607,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(color),
+                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -600,7 +615,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(color),
                 },
             ],
         });
@@ -619,7 +634,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 2,
-                    resource: BindingResource::TextureView(&self.temporary_texture),
+                    resource: BindingResource::TextureView(&self.temporary_textures[0]),
                 },
             ],
         });
