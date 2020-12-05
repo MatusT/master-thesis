@@ -39,14 +39,15 @@ void main() {
     const vec3 color = texture(sampler2D(input_color, linear_sampler), uv).rgb;
     const float ao_far = 1.0 - texture(sampler2D(input_ao1, linear_sampler), uv).r;
     const float ao_near = 1.0 - texture(sampler2D(input_ao2, linear_sampler), uv).r;
-    const float depth = ScreenSpaceToViewSpaceDepth(texture(sampler2D(input_depth, linear_sampler), uv).r);
+    const float depth_cs = texture(sampler2D(input_depth, linear_sampler), uv).r;
+    const float depth = ScreenSpaceToViewSpaceDepth(depth_cs);
     // const vec4 bloom = texture(sampler2D(input_bloom, linear_sampler), uv).rgba;
 
     // const vec3 final_color = (bloom.rgb * bloom.a + color.rgb * (1.0 - bloom.a)).rgb;
     // const vec3 final_color = vec3(color);
 
     // Fog computation
-    const float fog = 1.0 - clamp(0.0, fog_distance, depth) / fog_distance;
+    float fog = 1.0 - clamp(0.0, fog_distance, depth) / fog_distance;
 
     // SSAO interpolation
     // const float ao = (ao1 + ao2) / 2.0;

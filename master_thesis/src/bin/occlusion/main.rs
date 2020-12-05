@@ -157,7 +157,7 @@ impl framework::ApplicationStructure for Application {
                 0.785398163,
                 0.1,
             ),
-            1400.0,
+            2000.0,
             100.0,
         );
         camera.set_yaw(1.4100000000000015);
@@ -307,7 +307,7 @@ impl framework::ApplicationStructure for Application {
             })
             .collect();
 
-        let n = 7;
+        let n = 10;
         let n3 = n * n * n;
 
         let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
@@ -322,9 +322,9 @@ impl framework::ApplicationStructure for Application {
 
             let radius = structures[structure_id].borrow_mut().bounding_radius();
             let position = vec3(
-                x * radius * 1.75 * n as f32,
-                y * radius * 1.75 * n as f32,
-                z * radius * 1.75 * n as f32,
+                x * radius * 2.0 * n as f32,
+                y * radius * 2.0 * n as f32,
+                z * radius * 2.0 * n as f32,
             );
             let translation = translation(&position);
 
@@ -525,7 +525,7 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&output_texture),
+                    resource: BindingResource::TextureView(&postprocess_module.temporary_textures[1]),
                 },
             ],
         });
@@ -899,7 +899,7 @@ impl framework::ApplicationStructure for Application {
                         attachment: &self.output_texture,
                         resolve_target: None,
                         ops: Operations {
-                            load: LoadOp::Clear(Color::BLACK),
+                            load: LoadOp::Clear(Color::WHITE),
                             store: true,
                         },
                     },
@@ -961,6 +961,10 @@ impl framework::ApplicationStructure for Application {
                 let direction_norm_rot = rotation.try_inverse().unwrap() * normalize(&direction);
 
                 let distance = (direction.magnitude() - 2.0 * structure.bounding_radius()).max(1.0);
+
+                if distance > self.state.fog_distance {
+                    continue;
+                }
 
                 rpass.set_bind_group(2, &self.structures_transforms_bg, &[(i * 256) as u32]);
                 rpass.set_push_constants(

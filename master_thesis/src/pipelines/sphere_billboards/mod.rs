@@ -157,6 +157,13 @@ impl SphereBillboardsPipeline {
                     alpha_blend: BlendDescriptor::REPLACE,
                     write_mask: ColorWrite::ALL,
                 },
+                // Normals
+                ColorStateDescriptor {
+                    format: TextureFormat::Rgba32Float,
+                    color_blend: BlendDescriptor::REPLACE,
+                    alpha_blend: BlendDescriptor::REPLACE,
+                    write_mask: ColorWrite::ALL,
+                },
             ],
             depth_stencil_state: Some(DepthStencilStateDescriptor {
                 format: TextureFormat::Depth32Float,

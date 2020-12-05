@@ -29,6 +29,6 @@ void main() {
     }
     else
     { //~ current pixel lies on the edge
-        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.81), 1.0));
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.50), 1.0));
     }
 }

@@ -31,7 +31,7 @@ impl Default for PostProcessOptions {
             focus_point: vec2(0.5, 0.5),
             focus_amount: 2.0,
 
-            gauss_amount: 4.0,
+            gauss_amount: 50.0,
 
             ssao_pow: [1.0f32; 2],
             fog: 10000.0,
@@ -324,7 +324,7 @@ impl PostProcessModule {
                         ty: BindingType::StorageTexture {
                             dimension: TextureViewDimension::D2,
                             readonly: false,
-                            format: TextureFormat::Rgba8Unorm,
+                            format: TextureFormat::Rgba32Float,
                         },
                         count: None,
                     },
@@ -593,7 +593,7 @@ impl PostProcessModule {
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::TextureView(color),
+                    resource: BindingResource::TextureView(&self.temporary_textures[1]),
                 },
             ],
         });
