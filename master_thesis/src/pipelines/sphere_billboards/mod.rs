@@ -12,8 +12,8 @@ impl SphereBillboardsPipeline {
         sample_count: u32,
     ) -> Self {
         // Shaders
-        let vs_module = device.create_shader_module(include_spirv!("billboards.vert.spv"));
-        let fs_module = device.create_shader_module(include_spirv!("billboards.frag.spv"));
+        let vs_module = device.create_shader_module(&include_spirv!("billboards.vert.spv"));
+        let fs_module = device.create_shader_module(&include_spirv!("billboards.frag.spv"));
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -79,7 +79,7 @@ impl SphereBillboardsPipeline {
                 stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,
@@ -98,8 +98,8 @@ impl SphereBillboardsPipeline {
         sample_count: u32,
     ) -> Self {
         // Shaders
-        let vs_module = device.create_shader_module(include_spirv!("billboards_debug.vert.spv"));
-        let fs_module = device.create_shader_module(include_spirv!("billboards_debug.frag.spv"));
+        let vs_module = device.create_shader_module(&include_spirv!("billboards_debug.vert.spv"));
+        let fs_module = device.create_shader_module(&include_spirv!("billboards_debug.frag.spv"));
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -172,7 +172,7 @@ impl SphereBillboardsPipeline {
                 stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,
@@ -191,8 +191,8 @@ impl SphereBillboardsPipeline {
         sample_count: u32,
     ) -> Self {
         // Shaders
-        let vs_module = device.create_shader_module(include_spirv!("billboards.vert.spv"));
-        let fs_module = device.create_shader_module(include_spirv!("billboards_normals.frag.spv"));
+        let vs_module = device.create_shader_module(&include_spirv!("billboards.vert.spv"));
+        let fs_module = device.create_shader_module(&include_spirv!("billboards_normals.frag.spv"));
 
         // Pipeline
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -265,7 +265,7 @@ impl SphereBillboardsPipeline {
                 stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,
@@ -292,14 +292,14 @@ impl SphereBillboardsDepthPipeline {
     ) -> Self {
         // Shaders
         let vs_module = if write_visibility {
-            device.create_shader_module(include_spirv!("billboards_depth_write.vert.spv"))
+            device.create_shader_module(&include_spirv!("billboards_depth_write.vert.spv"))
         } else {
-            device.create_shader_module(include_spirv!("billboards_depth.vert.spv"))
+            device.create_shader_module(&include_spirv!("billboards_depth.vert.spv"))
         };
         let fs_module = if write_visibility {
-            device.create_shader_module(include_spirv!("billboards_depth_write.frag.spv"))
+            device.create_shader_module(&include_spirv!("billboards_depth_write.frag.spv"))
         } else {
-            device.create_shader_module(include_spirv!("billboards_depth.frag.spv"))
+            device.create_shader_module(&include_spirv!("billboards_depth.frag.spv"))
         };
 
         // Pipeline
@@ -359,7 +359,7 @@ impl SphereBillboardsDepthPipeline {
             color_states: &[],
             depth_stencil_state,
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,

@@ -55,8 +55,9 @@ impl framework::ApplicationStructure for Application {
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStage::all(),
-                ty: BindingType::UniformBuffer {
-                    dynamic: false,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(CameraUbo::size()),
                 },
                 count: None,
@@ -68,9 +69,9 @@ impl framework::ApplicationStructure for Application {
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStage::all(),
-                ty: BindingType::StorageBuffer {
-                    dynamic: false,
-                    readonly: true,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
                     min_binding_size: None,
                 },
                 count: None,
@@ -91,15 +92,15 @@ impl framework::ApplicationStructure for Application {
         );
 
         // Pipelines
-        let spheres_vs = device.create_shader_module(include_spirv!("pipelines/spheres.vert.spv"));
+        let spheres_vs = device.create_shader_module(&include_spirv!("pipelines/spheres.vert.spv"));
         let spheres_less_fs =
-            device.create_shader_module(include_spirv!("pipelines/spheres_less.frag.spv"));
+            device.create_shader_module(&include_spirv!("pipelines/spheres_less.frag.spv"));
         let spheres_greater_fs =
-            device.create_shader_module(include_spirv!("pipelines/spheres_greater.frag.spv"));
+            device.create_shader_module(&include_spirv!("pipelines/spheres_greater.frag.spv"));
         let spheres_early_less_fs =
-            device.create_shader_module(include_spirv!("pipelines/spheres_early_less.frag.spv"));
-        let spheres_early_greater_fs =
-            device.create_shader_module(include_spirv!("pipelines/spheres_early_greater.frag.spv"));
+            device.create_shader_module(&include_spirv!("pipelines/spheres_early_less.frag.spv"));
+        let spheres_early_greater_fs = device
+            .create_shader_module(&include_spirv!("pipelines/spheres_early_greater.frag.spv"));
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
@@ -150,7 +151,7 @@ impl framework::ApplicationStructure for Application {
                     stencil: StencilStateDescriptor::default(),
                 }),
                 vertex_state: VertexStateDescriptor {
-                    index_format: IndexFormat::Uint16,
+                    index_format: Some(IndexFormat::Uint32),
                     vertex_buffers: &[],
                 },
                 sample_count,
@@ -172,7 +173,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 

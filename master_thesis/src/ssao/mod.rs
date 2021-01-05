@@ -187,7 +187,7 @@ pub struct Settings {
 
     /// [0.0,  ~ ] Sigma squared value for use in bilateral upsampler giving similarity weighting for neighbouring pixels. Should be greater than 0.0.
     pub bilateralSimilarityDistanceSigma: f32,
-    
+
     pub x: f32,
 }
 
@@ -292,14 +292,14 @@ impl SsaoModule {
         let buffer_size_info = BufferSizeInfo::new(width, height);
 
         let normals_from_depth_shader =
-            device.create_shader_module(include_spirv!("normals_from_depth.comp.spv"));
+            device.create_shader_module(&include_spirv!("normals_from_depth.comp.spv"));
         let prepare_normals_shader =
-            device.create_shader_module(include_spirv!("prepare_normals.comp.spv"));
+            device.create_shader_module(&include_spirv!("prepare_normals.comp.spv"));
         let prepare_depths_shader =
-            device.create_shader_module(include_spirv!("prepare_depths.comp.spv"));
-        let ssao_shader = device.create_shader_module(include_spirv!("ssao.comp.spv"));
-        let blur_shader = device.create_shader_module(include_spirv!("blur.comp.spv"));
-        let apply_shader = device.create_shader_module(include_spirv!("apply.comp.spv"));
+            device.create_shader_module(&include_spirv!("prepare_depths.comp.spv"));
+        let ssao_shader = device.create_shader_module(&include_spirv!("ssao.comp.spv"));
+        let blur_shader = device.create_shader_module(&include_spirv!("blur.comp.spv"));
+        let apply_shader = device.create_shader_module(&include_spirv!("apply.comp.spv"));
 
         let prepare_normals_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Prepare normals BGL"),
@@ -307,8 +307,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(Constants::size()),
                     },
                     count: None,
@@ -316,15 +317,18 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                    ty: BindingType::Texture {
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
                     count: None,
@@ -333,9 +337,9 @@ impl SsaoModule {
                     binding: 3,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::Rgba32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -370,8 +374,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(Constants::size()),
                     },
                     count: None,
@@ -379,15 +384,18 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                    ty: BindingType::Texture {
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
                     count: None,
@@ -396,9 +404,9 @@ impl SsaoModule {
                     binding: 3,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -406,9 +414,9 @@ impl SsaoModule {
                     binding: 4,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -416,9 +424,9 @@ impl SsaoModule {
                     binding: 5,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -426,9 +434,9 @@ impl SsaoModule {
                     binding: 6,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -454,8 +462,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(Constants::size()),
                     },
                     count: None,
@@ -463,22 +472,28 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2Array,
+                        view_dimension: TextureViewDimension::D2Array,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -490,8 +505,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(PerPassConstants::size()),
                     },
                     count: None,
@@ -499,9 +515,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                    ty: BindingType::Texture {
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
                     count: None,
@@ -510,9 +526,9 @@ impl SsaoModule {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2,
+                        view_dimension: TextureViewDimension::D2,
                         format: TextureFormat::Rg32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -538,8 +554,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(Constants::size()),
                     },
                     count: None,
@@ -547,7 +564,10 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
             ],
@@ -558,9 +578,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2,
-                        component_type: TextureComponentType::Float,
+                    ty: BindingType::Texture {
+                        view_dimension: TextureViewDimension::D2,
+                        sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
                     count: None,
@@ -569,9 +589,9 @@ impl SsaoModule {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2,
+                        view_dimension: TextureViewDimension::D2,
                         format: TextureFormat::Rg32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },
@@ -597,8 +617,9 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(Constants::size()),
                     },
                     count: None,
@@ -606,21 +627,27 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Sampler { comparison: false },
+                    ty: BindingType::Sampler {
+                        comparison: false,
+                        filtering: true,
+                    },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::SampledTexture {
-                        dimension: TextureViewDimension::D2Array,
-                        component_type: TextureComponentType::Float,
+                    ty: BindingType::Texture {
+                        view_dimension: TextureViewDimension::D2Array,
+                        sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
                     count: None,
@@ -629,9 +656,9 @@ impl SsaoModule {
                     binding: 4,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
-                        dimension: TextureViewDimension::D2,
+                        view_dimension: TextureViewDimension::D2,
                         format: TextureFormat::R32Float,
-                        readonly: false,
+                        access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
                 },

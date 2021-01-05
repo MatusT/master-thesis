@@ -25,10 +25,11 @@ void main() {
 
     if ( (X == R) && (X == L) && (X == T) && (X == B) )
     { //~ current pixel is NOT on the edge
-        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(color, 1.0));
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(0.0));
     }
     else
     { //~ current pixel lies on the edge
-        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(mix(color, vec3(0.0), 0.50), 1.0));
+    //mix(color, vec3(0.0), 0.50)
+        imageStore(output_texture, ivec2(gl_GlobalInvocationID.xy), vec4(1.0));
     }
 }

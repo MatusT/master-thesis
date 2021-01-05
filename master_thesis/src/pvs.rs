@@ -52,7 +52,7 @@ impl StructurePvsModule {
                 sample_count: 1,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT,
+                usage: TextureUsage::RENDER_ATTACHMENT,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -62,9 +62,9 @@ impl StructurePvsModule {
                 entries: &[BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: false,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                     count: None,
@@ -515,8 +515,6 @@ impl StructurePvsField {
             pvs.visible[i].sort_by(|a, b| a.0.cmp(&b.0));
             pvs.visible[i] = compress_ranges(pvs.visible[i].clone(), 0);
         }
-
-        // println!("Reduction in {:?} ms", start.elapsed().as_micros());
     }
 
     pub fn ranges_limit(&self) -> usize {

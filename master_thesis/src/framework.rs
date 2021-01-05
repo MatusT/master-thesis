@@ -134,6 +134,7 @@ async fn wgpu_setup<E: ApplicationStructure>(
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
+                label: None,
                 features: (optional_features & adapter_features) | required_features,
                 limits: needed_limits,
                 shader_validation: false,
@@ -197,7 +198,7 @@ fn start<E: ApplicationStructure>(
     let mut output_frame_time = false;
 
     let mut sc_desc = wgpu::SwapChainDescriptor {
-        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
         // TODO: Allow srgb unconditionally
         format: if cfg!(target_arch = "wasm32") {
             wgpu::TextureFormat::Bgra8Unorm

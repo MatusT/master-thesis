@@ -101,7 +101,7 @@ impl framework::ApplicationStructure for Application {
                     binding: 0,
                     visibility: ShaderStage::all(),
                     ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(CameraUbo::size()),
                     },
                     count: None,
@@ -116,8 +116,8 @@ impl framework::ApplicationStructure for Application {
                         binding: 0,
                         visibility: ShaderStage::all(),
                         ty: BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
+                            has_dynamic_offset: false,
+                            access: StorageTextureAccess::ReadOnly,
                             min_binding_size: None,
                         },
                         count: None,
@@ -126,8 +126,8 @@ impl framework::ApplicationStructure for Application {
                         binding: 1,
                         visibility: ShaderStage::all(),
                         ty: BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
+                            has_dynamic_offset: false,
+                            access: StorageTextureAccess::ReadOnly,
                             min_binding_size: None,
                         },
                         count: None,
@@ -232,7 +232,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -247,7 +247,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: sc_desc.format,
-                usage: TextureUsage::OUTPUT_ATTACHMENT,
+                usage: TextureUsage::RENDER_ATTACHMENT,
                 label: None,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -264,7 +264,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT
+                usage: TextureUsage::RENDER_ATTACHMENT
                     | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
             })
@@ -282,7 +282,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::R32Uint,
-                usage: TextureUsage::OUTPUT_ATTACHMENT
+                usage: TextureUsage::RENDER_ATTACHMENT
                     | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
             })
@@ -300,7 +300,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba8Unorm,
-                usage: TextureUsage::OUTPUT_ATTACHMENT
+                usage: TextureUsage::RENDER_ATTACHMENT
                     | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
             })
@@ -422,7 +422,7 @@ impl framework::ApplicationStructure for Application {
                     sample_count: 1,
                     dimension: TextureDimension::D2,
                     format: TextureFormat::R32Float,
-                    usage: TextureUsage::OUTPUT_ATTACHMENT
+                    usage: TextureUsage::RENDER_ATTACHMENT
                         | TextureUsage::STORAGE
                         | TextureUsage::SAMPLED,
                 })
@@ -439,7 +439,7 @@ impl framework::ApplicationStructure for Application {
                     sample_count: 1,
                     dimension: TextureDimension::D2,
                     format: TextureFormat::R32Float,
-                    usage: TextureUsage::OUTPUT_ATTACHMENT
+                    usage: TextureUsage::RENDER_ATTACHMENT
                         | TextureUsage::STORAGE
                         | TextureUsage::SAMPLED,
                 })
@@ -448,8 +448,8 @@ impl framework::ApplicationStructure for Application {
 
         let postprocess_module = PostProcessModule::new(device, width, height);
 
-        let output_vs = device.create_shader_module(include_spirv!("passthrough.vert.spv"));
-        let output_fs = device.create_shader_module(include_spirv!("passthrough.frag.spv"));
+        let output_vs = device.create_shader_module(&include_spirv!("passthrough.vert.spv"));
+        let output_fs = device.create_shader_module(&include_spirv!("passthrough.frag.spv"));
 
         let output_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -458,15 +458,18 @@ impl framework::ApplicationStructure for Application {
                     BindGroupLayoutEntry {
                         binding: 0,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::Sampler { comparison: false },
+                        ty: BindingType::Sampler {
+                            comparison: false,
+                            filtering: true,
+                        },
                         count: None,
                     },
                     BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::SampledTexture {
-                            dimension: TextureViewDimension::D2,
-                            component_type: TextureComponentType::Float,
+                        ty: BindingType::Texture {
+                            view_dimension: TextureViewDimension::D2,
+                            sample_type: TextureSampleType::Float { filterable: true },
                             multisampled: false,
                         },
                         count: None,
@@ -512,7 +515,7 @@ impl framework::ApplicationStructure for Application {
             }],
             depth_stencil_state: None,
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,
@@ -542,7 +545,9 @@ impl framework::ApplicationStructure for Application {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&postprocess_module.temporary_textures[1]),
+                    resource: BindingResource::TextureView(
+                        &postprocess_module.temporary_textures[1],
+                    ),
                 },
             ],
         });
@@ -588,7 +593,7 @@ impl framework::ApplicationStructure for Application {
             render_mode: 0,
         };
 
-        let start_time = Instant::now();        
+        let start_time = Instant::now();
 
         Self {
             width,
@@ -739,9 +744,7 @@ impl framework::ApplicationStructure for Application {
                                 self.postprocess_module.options.dof += addsub;
                                 println!("Dof: {}", self.postprocess_module.options.dof);
                             }
-                            VirtualKeyCode::Space => {
-
-                            }
+                            VirtualKeyCode::Space => {}
                             _ => {}
                         };
                     }
@@ -855,7 +858,11 @@ impl framework::ApplicationStructure for Application {
         if self.state.animating {
             let sub = self.structures[0].borrow().bounding_radius() / 100.0;
             if self.camera.distance() <= self.structures[0].borrow().bounding_radius() * 2.0 {
-                self.state.animating_reveal -= if self.state.animating_reveal <= 0.0 { 0.0 } else { sub }; 
+                self.state.animating_reveal -= if self.state.animating_reveal <= 0.0 {
+                    0.0
+                } else {
+                    sub
+                };
                 println!("{}", self.state.animating_reveal);
             } else {
                 self.state.animating_reveal = self.structures[0].borrow().bounding_radius();
@@ -1113,7 +1120,8 @@ impl framework::ApplicationStructure for Application {
         queue.submit(Some(encoder.finish()));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-        self.postprocess_module.options.ssao_pow = [self.state.ssao_settings[0].x, self.state.ssao_settings[1].x];
+        self.postprocess_module.options.ssao_pow =
+            [self.state.ssao_settings[0].x, self.state.ssao_settings[1].x];
         self.postprocess_module.options.fog = self.state.fog_distance;
         self.postprocess_module.compute(
             &mut self.camera,
@@ -1129,7 +1137,6 @@ impl framework::ApplicationStructure for Application {
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,

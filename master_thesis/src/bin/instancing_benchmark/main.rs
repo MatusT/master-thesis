@@ -61,7 +61,7 @@ impl framework::ApplicationStructure for Application {
                 binding: 0,
                 visibility: ShaderStage::all(),
                 ty: BindingType::UniformBuffer {
-                    dynamic: false,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(CameraUbo::size()),
                 },
                 count: None,
@@ -82,11 +82,11 @@ impl framework::ApplicationStructure for Application {
 
         // Pipelines
         let vs_instanced =
-            device.create_shader_module(include_spirv!("pipelines/spheres_instanced.vert.spv"));
-        let vs_manual_instanced = device.create_shader_module(include_spirv!(
+            device.create_shader_module(&include_spirv!("pipelines/spheres_instanced.vert.spv"));
+        let vs_manual_instanced = device.create_shader_module(&include_spirv!(
             "pipelines/spheres_manual_instanced.vert.spv"
         ));
-        let fs = device.create_shader_module(include_spirv!("pipelines/spheres.frag.spv"));
+        let fs = device.create_shader_module(&include_spirv!("pipelines/spheres.frag.spv"));
 
         let instanced_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: None,
@@ -112,6 +112,7 @@ impl framework::ApplicationStructure for Application {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[ColorStateDescriptor {
@@ -127,7 +128,7 @@ impl framework::ApplicationStructure for Application {
                 stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[
                     VertexBufferDescriptor {
                         stride: 16,
@@ -153,7 +154,7 @@ impl framework::ApplicationStructure for Application {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer {
-                        dynamic: false,
+                        has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                     count: None,
@@ -162,8 +163,8 @@ impl framework::ApplicationStructure for Application {
                     binding: 1,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::StorageBuffer {
-                        dynamic: false,
-                        readonly: true,
+                        has_dynamic_offset: false,
+                        access: StorageTextureAccess::ReadOnly,
                         min_binding_size: None,
                     },
                     count: None,
@@ -199,6 +200,7 @@ impl framework::ApplicationStructure for Application {
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
                 clamp_depth: false,
+                polygon_mode: PolygonMode::Fill,
             }),
             primitive_topology: PrimitiveTopology::TriangleList,
             color_states: &[ColorStateDescriptor {
@@ -214,7 +216,7 @@ impl framework::ApplicationStructure for Application {
                 stencil: StencilStateDescriptor::default(),
             }),
             vertex_state: VertexStateDescriptor {
-                index_format: IndexFormat::Uint16,
+                index_format: Some(IndexFormat::Uint32),
                 vertex_buffers: &[],
             },
             sample_count,
@@ -235,7 +237,7 @@ impl framework::ApplicationStructure for Application {
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Depth32Float,
-                usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::SAMPLED,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
