@@ -38,53 +38,42 @@ impl SphereBillboardsPipeline {
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+            }),
+            fragment: Some(FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[
+                    // Output color
+                    ColorTargetState {
+                        format: TextureFormat::Rgba8Unorm,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                    // Instance
+                    ColorTargetState {
+                        format: TextureFormat::R32Uint,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                ],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[
-                // Output color
-                ColorStateDescriptor {
-                    format: TextureFormat::Rgba8Unorm,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-                // Instance
-                ColorStateDescriptor {
-                    format: TextureFormat::R32Uint,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-            ],
-            depth_stencil_state: Some(DepthStencilStateDescriptor {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Greater,
-                stencil: StencilStateDescriptor::default(),
-            }),
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         Self { pipeline }
@@ -124,60 +113,48 @@ impl SphereBillboardsPipeline {
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+            }),
+            fragment: Some(FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[
+                    // Output color
+                    ColorTargetState {
+                        format: TextureFormat::Rgba8Unorm,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                    // Instance
+                    ColorTargetState {
+                        format: TextureFormat::R32Uint,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                    // Normals
+                    ColorTargetState {
+                        format: TextureFormat::Rgba32Float,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                ],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[
-                // Output color
-                ColorStateDescriptor {
-                    format: TextureFormat::Rgba8Unorm,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-                // Instance
-                ColorStateDescriptor {
-                    format: TextureFormat::R32Uint,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-                // Normals
-                ColorStateDescriptor {
-                    format: TextureFormat::Rgba32Float,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-            ],
-            depth_stencil_state: Some(DepthStencilStateDescriptor {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Greater,
-                stencil: StencilStateDescriptor::default(),
-            }),
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         Self { pipeline }
@@ -217,60 +194,48 @@ impl SphereBillboardsPipeline {
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+            }),
+            fragment: Some(FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[
+                    // Output color
+                    ColorTargetState {
+                        format: TextureFormat::Rgba8Unorm,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                    // Instance
+                    ColorTargetState {
+                        format: TextureFormat::R32Uint,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                    // Normals
+                    ColorTargetState {
+                        format: TextureFormat::Rgba32Float,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                ],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[
-                // Output color
-                ColorStateDescriptor {
-                    format: TextureFormat::Rgba8Unorm,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-                // Instance
-                ColorStateDescriptor {
-                    format: TextureFormat::R32Uint,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-                // Normals
-                ColorStateDescriptor {
-                    format: TextureFormat::Rgba32Float,
-                    color_blend: BlendDescriptor::REPLACE,
-                    alpha_blend: BlendDescriptor::REPLACE,
-                    write_mask: ColorWrite::ALL,
-                },
-            ],
-            depth_stencil_state: Some(DepthStencilStateDescriptor {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Greater,
-                stencil: StencilStateDescriptor::default(),
-            }),
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         Self { pipeline }
@@ -319,52 +284,45 @@ impl SphereBillboardsDepthPipeline {
             push_constant_ranges: &[],
         });
 
-        let depth_stencil_state = if write_visibility {
-            Some(DepthStencilStateDescriptor {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::GreaterEqual,
-                stencil: StencilStateDescriptor::default(),
+        let depth_stencil = if write_visibility {
+            Some(DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
             })
         } else {
-            Some(DepthStencilStateDescriptor {
-                format: TextureFormat::Depth32Float,
+            Some(DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: true,
-                depth_compare: CompareFunction::Greater,
-                stencil: StencilStateDescriptor::default(),
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
             })
         };
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &vs_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil,
+            fragment: Some(FragmentState {
                 module: &fs_module,
                 entry_point: "main",
+                targets: &[],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[],
-            depth_stencil_state,
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         Self { pipeline }
