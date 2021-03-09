@@ -9,7 +9,7 @@ layout(push_constant) uniform PushConstants {
 
 layout(set = 0, binding = 0) uniform sampler linear_sampler;
 layout(set = 0, binding = 1) uniform texture2D input_texture;
-layout(set = 0, binding = 2, rgba8) uniform writeonly image2D output_texture;
+layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D output_texture;
 
 void main(void) {
   const vec2 uv = vec2(gl_GlobalInvocationID.xy) / size;

@@ -32,6 +32,7 @@ layout(set = 0, binding = 0, std140) uniform Constants
 
 layout(set = 0, binding = 1) uniform sampler g_PointMirrorSampler;
 layout(set = 0, binding = 2) uniform sampler g_ViewspaceDepthTapSampler;
+
 layout(set = 0, binding = 3, rgba32f) uniform readonly image2DArray g_DeinterlacedNormals;
 
 layout(set = 1, binding = 0, std140) uniform PassConstants

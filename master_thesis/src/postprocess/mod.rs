@@ -65,7 +65,11 @@ pub struct PostProcessModule {
 impl PostProcessModule {
     pub fn new(device: &Device, width: u32, height: u32) -> Self {
         let monotone_shader = device.create_shader_module(&include_spirv!("mono-tone.comp.spv"));
-        let contours_shader = device.create_shader_module(&include_spirv!("contours.comp.spv"));
+        let contours_shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("contours"),
+            source: util::make_spirv(include_bytes!("contours.comp.spv")),
+            flags: ShaderFlags::empty(),
+        });
         let gaussx_shader = device.create_shader_module(&include_spirv!("gaussx.comp.spv"));
         let gaussy_shader = device.create_shader_module(&include_spirv!("gaussy.comp.spv"));
         let combine_shader = device.create_shader_module(&include_spirv!("combine.comp.spv"));
@@ -118,10 +122,8 @@ impl PostProcessModule {
         let monotone_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("Monotone Pass"),
             layout: Some(&monotone_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &monotone_shader,
-                entry_point: "main",
-            },
+            module: &monotone_shader,
+            entry_point: "main",
         });
 
         let contours_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -178,10 +180,8 @@ impl PostProcessModule {
         let contours_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("contours Pass"),
             layout: Some(&contours_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &contours_shader,
-                entry_point: "main",
-            },
+            module: &contours_shader,
+            entry_point: "main",
         });
 
         let gauss_pl = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -196,19 +196,15 @@ impl PostProcessModule {
         let gaussx_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("gaussx Pass"),
             layout: Some(&gauss_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &gaussx_shader,
-                entry_point: "main",
-            },
+            module: &gaussx_shader,
+            entry_point: "main",
         });
 
         let gaussy_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("gaussy Pass"),
             layout: Some(&gauss_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &gaussy_shader,
-                entry_point: "main",
-            },
+            module: &gaussy_shader,
+            entry_point: "main",
         });
 
         let gauss_pass = [gaussy_pass, gaussx_pass];
@@ -290,10 +286,8 @@ impl PostProcessModule {
         let combine_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("combine Pass"),
             layout: Some(&combine_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &combine_shader,
-                entry_point: "main",
-            },
+            module: &combine_shader,
+            entry_point: "main",
         });
 
         let combine2_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -353,10 +347,8 @@ impl PostProcessModule {
         let combine2_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("combine2 Pass"),
             layout: Some(&combine2_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &combine2_shader,
-                entry_point: "main",
-            },
+            module: &combine2_shader,
+            entry_point: "main",
         });
 
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
@@ -378,7 +370,7 @@ impl PostProcessModule {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -393,7 +385,7 @@ impl PostProcessModule {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -408,7 +400,7 @@ impl PostProcessModule {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -426,7 +418,7 @@ impl PostProcessModule {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -441,7 +433,7 @@ impl PostProcessModule {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -632,7 +624,7 @@ impl PostProcessModule {
         let x = dispatch_size(8, self.width);
         let y = dispatch_size(8, self.height);
 
-        let mut cpass = encoder.begin_compute_pass();
+        let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
         cpass.push_debug_group("Post process");
 
         // Combine

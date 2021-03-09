@@ -15,7 +15,7 @@ layout(set = 0, binding = 0, std140) uniform Constants
 layout(set = 0, binding = 1) uniform sampler g_PointClampSampler;
 
 // Input
-layout(set = 0, binding = 2) uniform texture2D g_PrepareNormalsFromNormalsInput;
+layout(set = 0, binding = 2, rgba32f) uniform image2D g_PrepareNormalsFromNormalsInput;
 
 // Output
 layout(set = 0, binding = 3, rgba32f) uniform writeonly image2DArray g_PrepareNormalsFromNormalsOutput;
@@ -29,7 +29,7 @@ vec3 DecodeNormal(vec3 encodedNormal)
 
 vec3 PrepareNormalsFromInputNormalsLoadNormal(ivec2 pos)
 {
-    vec3 encodedNormal = texture(sampler2D(g_PrepareNormalsFromNormalsInput, g_PointClampSampler), (vec2(pos) + vec2(0.5)) * constants.OutputBufferInverseDimensions).xyz;
+    vec3 encodedNormal = imageLoad(g_PrepareNormalsFromNormalsInput, ivec2(pos.xy)).xyz;
     return normalize(encodedNormal);
 }
 

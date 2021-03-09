@@ -100,7 +100,8 @@ impl framework::ApplicationStructure for Application {
                 entries: &[BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::all(),
-                    ty: BindingType::UniformBuffer {
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: Some(CameraUbo::size()),
                     },
@@ -115,9 +116,9 @@ impl framework::ApplicationStructure for Application {
                     BindGroupLayoutEntry {
                         binding: 0,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::StorageBuffer {
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            access: StorageTextureAccess::ReadOnly,
                             min_binding_size: None,
                         },
                         count: None,
@@ -125,9 +126,9 @@ impl framework::ApplicationStructure for Application {
                     BindGroupLayoutEntry {
                         binding: 1,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::StorageBuffer {
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            access: StorageTextureAccess::ReadOnly,
                             min_binding_size: None,
                         },
                         count: None,
@@ -140,8 +141,9 @@ impl framework::ApplicationStructure for Application {
                 entries: &[BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
-                    ty: BindingType::UniformBuffer {
-                        dynamic: true,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
                         min_binding_size: None,
                     },
                     count: None,
@@ -226,7 +228,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -241,7 +243,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -258,7 +260,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -276,7 +278,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -294,7 +296,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -416,7 +418,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -433,7 +435,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -489,38 +491,29 @@ impl framework::ApplicationStructure for Application {
         let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: None,
             layout: Some(&output_pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &output_vs,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: None,
+            fragment: Some(FragmentState {
                 module: &output_fs,
                 entry_point: "main",
+                targets: &[
+                    // Output color
+                    ColorTargetState {
+                        format: sc_desc.format,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                ],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[ColorStateDescriptor {
-                format: sc_desc.format,
-                color_blend: BlendDescriptor::REPLACE,
-                alpha_blend: BlendDescriptor::REPLACE,
-                write_mask: ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
@@ -693,7 +686,7 @@ impl framework::ApplicationStructure for Application {
                                 changed = true;
                                 self.state.fog_modifying = false;
                             }
-                            VirtualKeyCode::Add => {
+                            VirtualKeyCode::Plus => {
                                 if self.state.fog_modifying {
                                     self.state.fog_distance += 100.0;
                                 } else {
@@ -702,7 +695,7 @@ impl framework::ApplicationStructure for Application {
                                 }
                                 changed = true;
                             }
-                            VirtualKeyCode::Subtract => {
+                            VirtualKeyCode::Minus => {
                                 if self.state.fog_modifying {
                                     self.state.fog_distance -= 100.0;
                                 } else {
@@ -926,6 +919,7 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Render molecules"),
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
                         attachment: &self.output_texture,
@@ -1138,6 +1132,7 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
                     resolve_target: None,

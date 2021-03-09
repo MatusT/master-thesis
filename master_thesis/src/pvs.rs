@@ -63,7 +63,7 @@ impl StructurePvsModule {
                     binding: 0,
                     visibility: ShaderStage::all(),
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
+                        ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -290,6 +290,7 @@ impl StructurePvsField {
             // Draw the depth buffer
             {
                 let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: None,
                     color_attachments: &[],
                     depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                         attachment: &self.module.depth,
@@ -320,6 +321,7 @@ impl StructurePvsField {
             // Draw a second time without writing to a depth buffer but writing visibility
             {
                 let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                    label: None,
                     color_attachments: &[],
                     depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                         attachment: &self.module.depth,

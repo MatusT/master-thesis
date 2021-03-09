@@ -8,11 +8,11 @@ edition = "2018"
 
 [dependencies]
 # Window, Input, Graphics
-winit = { version = "0.22.1", features = ["web-sys"] }
-wgpu = { version = "0.5", git = "https://github.com/gfx-rs/wgpu-rs" }
+winit = { version = "0.24", features = ["web-sys"] }
+wgpu = { version = "0.7", git = "https://github.com/gfx-rs/wgpu-rs" }
 
 # Math
-nalgebra-glm = "0.7"
+nalgebra-glm = "0.11"
 
 # Utils
 futures = "0.3"

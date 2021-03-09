@@ -291,13 +291,26 @@ impl SsaoModule {
     pub fn new(device: &Device, width: u32, height: u32) -> Self {
         let buffer_size_info = BufferSizeInfo::new(width, height);
 
-        let normals_from_depth_shader =
-            device.create_shader_module(&include_spirv!("normals_from_depth.comp.spv"));
-        let prepare_normals_shader =
-            device.create_shader_module(&include_spirv!("prepare_normals.comp.spv"));
-        let prepare_depths_shader =
-            device.create_shader_module(&include_spirv!("prepare_depths.comp.spv"));
-        let ssao_shader = device.create_shader_module(&include_spirv!("ssao.comp.spv"));
+        let normals_from_depth_shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("normals_from_depth_shader"),
+            source: util::make_spirv(include_bytes!("normals_from_depth.comp.spv")),
+            flags: ShaderFlags::empty(),
+        });
+        let prepare_normals_shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("prepare_normals_shader"),
+            source: util::make_spirv(include_bytes!("prepare_normals.comp.spv")),
+            flags: ShaderFlags::empty(),
+        });
+        let prepare_depths_shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("prepare_depths_shader"),
+            source: util::make_spirv(include_bytes!("prepare_depths.comp.spv")),
+            flags: ShaderFlags::empty(),
+        });
+        let ssao_shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("ssao"),
+            source: util::make_spirv(include_bytes!("ssao.comp.spv")),
+            flags: ShaderFlags::empty(),
+        });
         let blur_shader = device.create_shader_module(&include_spirv!("blur.comp.spv"));
         let apply_shader = device.create_shader_module(&include_spirv!("apply.comp.spv"));
 
@@ -326,10 +339,10 @@ impl SsaoModule {
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStage::COMPUTE,
-                    ty: BindingType::Texture {
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadOnly,
+                        format: TextureFormat::Rgba32Float,
                         view_dimension: TextureViewDimension::D2,
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        multisampled: false,
                     },
                     count: None,
                 },
@@ -354,18 +367,14 @@ impl SsaoModule {
         let normals_from_depth_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&prepare_normals_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &normals_from_depth_shader,
-                entry_point: "main",
-            },
+            module: &normals_from_depth_shader,
+            entry_point: "main",
         });
         let prepare_normals_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&prepare_normals_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &prepare_normals_shader,
-                entry_point: "main",
-            },
+            module: &prepare_normals_shader,
+            entry_point: "main",
         });
 
         let prepare_depths_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -450,10 +459,8 @@ impl SsaoModule {
         let prepare_depths_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&prepare_depths_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &prepare_depths_shader,
-                entry_point: "main",
-            },
+            module: &prepare_depths_shader,
+            entry_point: "main",
         });
 
         let ssao_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -492,7 +499,7 @@ impl SsaoModule {
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::StorageTexture {
                         view_dimension: TextureViewDimension::D2Array,
-                        format: TextureFormat::R32Float,
+                        format: TextureFormat::Rgba32Float,
                         access: StorageTextureAccess::WriteOnly,
                     },
                     count: None,
@@ -516,7 +523,7 @@ impl SsaoModule {
                     binding: 1,
                     visibility: ShaderStage::COMPUTE,
                     ty: BindingType::Texture {
-                        view_dimension: TextureViewDimension::D2,
+                        view_dimension: TextureViewDimension::D2Array,
                         sample_type: TextureSampleType::Float { filterable: true },
                         multisampled: false,
                     },
@@ -542,10 +549,8 @@ impl SsaoModule {
         let ssao_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&ssao_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &ssao_shader,
-                entry_point: "main",
-            },
+            module: &ssao_shader,
+            entry_point: "main",
         });
 
         let blur_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -605,10 +610,8 @@ impl SsaoModule {
         let blur_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&blur_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &blur_shader,
-                entry_point: "main",
-            },
+            module: &blur_shader,
+            entry_point: "main",
         });
 
         let apply_bgl = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -672,10 +675,8 @@ impl SsaoModule {
         let apply_pass = device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: None,
             layout: Some(&apply_pl),
-            compute_stage: ProgrammableStageDescriptor {
-                module: &apply_shader,
-                entry_point: "main",
-            },
+            module: &apply_shader,
+            entry_point: "main",
         });
 
         let point_clamp_sampler = device.create_sampler(&SamplerDescriptor {
@@ -732,7 +733,7 @@ impl SsaoModule {
                 size: Extent3d {
                     width: (width + 1) / 2,
                     height: (height + 1) / 2,
-                    depth: 4,
+                    depth_or_array_layers: 4,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -752,7 +753,7 @@ impl SsaoModule {
             size: Extent3d {
                 width: (width + 1) / 2,
                 height: (height + 1) / 2,
-                depth: 4,
+                depth_or_array_layers: 4,
             },
             mip_level_count: 4,
             sample_count: 1,
@@ -766,12 +767,12 @@ impl SsaoModule {
             size: Extent3d {
                 width: (width + 1) / 2,
                 height: (height + 1) / 2,
-                depth: 4,
+                depth_or_array_layers: 4,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rg8Unorm,
+            format: TextureFormat::Rg32Float,
             usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
         });
 
@@ -780,12 +781,12 @@ impl SsaoModule {
             size: Extent3d {
                 width: (width + 1) / 2,
                 height: (height + 1) / 2,
-                depth: 4,
+                depth_or_array_layers: 4,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rg8Unorm,
+            format: TextureFormat::Rg32Float,
             usage: TextureUsage::STORAGE | TextureUsage::SAMPLED,
         });
 
@@ -817,8 +818,8 @@ impl SsaoModule {
             }));
 
             ssao_results_views.push(ssao_results.create_view(&TextureViewDescriptor {
-                format: Some(TextureFormat::Rg8Unorm),
-                dimension: Some(TextureViewDimension::D2Array),
+                format: Some(TextureFormat::Rg32Float),
+                dimension: Some(TextureViewDimension::D2),
                 aspect: TextureAspect::All,
                 base_array_layer: pass,
                 array_layer_count: std::num::NonZeroU32::new(1),
@@ -826,7 +827,7 @@ impl SsaoModule {
             }));
 
             blurred_results_views.push(blurred_results.create_view(&TextureViewDescriptor {
-                format: Some(TextureFormat::Rg8Unorm),
+                format: Some(TextureFormat::Rg32Float),
                 dimension: Some(TextureViewDimension::D2),
                 aspect: TextureAspect::All,
                 base_array_layer: pass,
@@ -1053,7 +1054,7 @@ impl SsaoModule {
 
         // Create bind groups
         let prepare_depths_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Prepare depths"),
             layout: &self.prepare_depths_bgl,
             entries: &[
                 BindGroupEntry {
@@ -1098,7 +1099,7 @@ impl SsaoModule {
         };
 
         let prepare_normals_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Prepare normals"),
             layout: &self.prepare_normals_bgl,
             entries: &[
                 BindGroupEntry {
@@ -1125,7 +1126,7 @@ impl SsaoModule {
         });
 
         let ssao_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("SSAO"),
             layout: &self.ssao_bgl,
             entries: &[
                 BindGroupEntry {
@@ -1154,7 +1155,7 @@ impl SsaoModule {
         let mut ssao_pass_bgs = Vec::new();
         for pass in 0..4 as usize {
             ssao_pass_bgs.push(device.create_bind_group(&BindGroupDescriptor {
-                label: None,
+                label: Some("SSAO PASS "),
                 layout: &self.ssao_per_pass_bgl,
                 entries: &[
                     BindGroupEntry {
@@ -1178,7 +1179,7 @@ impl SsaoModule {
         }
 
         let blur_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Blur"),
             layout: &self.blur_bgl,
             entries: &[
                 BindGroupEntry {
@@ -1198,7 +1199,7 @@ impl SsaoModule {
         let mut blur_pass_bgs = Vec::new();
         for pass in 0..4 {
             blur_pass_bgs.push(device.create_bind_group(&BindGroupDescriptor {
-                label: None,
+                label: Some("Blur"),
                 layout: &self.blur_per_pass_bgl,
                 entries: &[
                     BindGroupEntry {
@@ -1214,7 +1215,7 @@ impl SsaoModule {
         }
 
         let apply_bgs = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Apply"),
             layout: &self.apply_bgl,
             entries: &[
                 BindGroupEntry {
@@ -1252,7 +1253,7 @@ impl SsaoModule {
             return (total_size + tile_size - 1) / tile_size;
         };
 
-        let mut cpass = encoder.begin_compute_pass();
+        let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
 
         // Prepare depths
         {

@@ -36,7 +36,7 @@ impl SphereBillboardsPipeline {
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Sphere billboards"),
             layout: Some(&pipeline_layout),
             vertex: VertexState {
                 module: &vs_module,
@@ -111,7 +111,7 @@ impl SphereBillboardsPipeline {
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Sphere billboards debug"),
             layout: Some(&pipeline_layout),
             vertex: VertexState {
                 module: &vs_module,
@@ -192,7 +192,7 @@ impl SphereBillboardsPipeline {
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Sphere billboards with normals output"),
             layout: Some(&pipeline_layout),
             vertex: VertexState {
                 module: &vs_module,
@@ -305,7 +305,7 @@ impl SphereBillboardsDepthPipeline {
         };
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Sphere billboards depth only"),
             layout: Some(&pipeline_layout),
             vertex: VertexState {
                 module: &vs_module,

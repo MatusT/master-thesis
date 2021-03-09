@@ -74,7 +74,7 @@ pub struct Application {
 
 impl framework::ApplicationStructure for Application {
     fn required_features() -> wgpu::Features {
-        wgpu::Features::PUSH_CONSTANTS
+        wgpu::Features::PUSH_CONSTANTS | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
     }
 
     fn required_limits() -> wgpu::Limits {
@@ -211,7 +211,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers:1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -226,7 +226,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers:1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -243,14 +243,13 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers:1,
                 },
                 mip_level_count: 1,
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba32Float,
                 usage: TextureUsage::RENDER_ATTACHMENT
-                    | TextureUsage::SAMPLED
                     | TextureUsage::STORAGE,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -261,7 +260,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers:1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -279,7 +278,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers:1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -381,7 +380,7 @@ impl framework::ApplicationStructure for Application {
         };
 
         let structures_transforms_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: None,
+            label: Some("Structure transforms"),
             layout: &per_structure_bind_group_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
@@ -401,7 +400,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers:1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -418,7 +417,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth: 1,
+                        depth_or_array_layers:1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -438,24 +437,15 @@ impl framework::ApplicationStructure for Application {
 
         let output_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
+                label: Some("Output"),
                 entries: &[
                     BindGroupLayoutEntry {
                         binding: 0,
                         visibility: ShaderStage::all(),
-                        ty: BindingType::Sampler {
-                            comparison: false,
-                            filtering: true,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::Texture {
+                        ty: BindingType::StorageTexture {
+                            access: StorageTextureAccess::ReadOnly,
+                            format: TextureFormat::Rgba32Float,
                             view_dimension: TextureViewDimension::D2,
-                            sample_type: TextureSampleType::Float { filterable: true },
-                            multisampled: false,
                         },
                         count: None,
                     },
@@ -467,45 +457,36 @@ impl framework::ApplicationStructure for Application {
             bind_group_layouts: &[&output_bind_group_layout],
             push_constant_ranges: &[PushConstantRange {
                 stages: ShaderStage::FRAGMENT,
-                range: 0..24,
+                range: 0..16,
             }],
         });
 
         let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Main output"),
             layout: Some(&output_pipeline_layout),
-            vertex_stage: ProgrammableStageDescriptor {
+            vertex: VertexState {
                 module: &output_vs,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(ProgrammableStageDescriptor {
+            primitive: PrimitiveState {
+                cull_mode: Some(Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: None,
+            fragment: Some(FragmentState {
                 module: &output_fs,
                 entry_point: "main",
+                targets: &[
+                    // Output color
+                    ColorTargetState {
+                        format: sc_desc.format,
+                        write_mask: ColorWrite::ALL,
+                        blend: None,
+                    },
+                ],
             }),
-            rasterization_state: Some(RasterizationStateDescriptor {
-                front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-                clamp_depth: false,
-                polygon_mode: PolygonMode::Fill,
-            }),
-            primitive_topology: PrimitiveTopology::TriangleList,
-            color_states: &[ColorStateDescriptor {
-                format: sc_desc.format,
-                color_blend: BlendDescriptor::REPLACE,
-                alpha_blend: BlendDescriptor::REPLACE,
-                write_mask: ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: VertexStateDescriptor {
-                index_format: Some(IndexFormat::Uint32),
-                vertex_buffers: &[],
-            },
-            sample_count,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState::default(),
         });
 
         let linear_clamp_sampler = device.create_sampler(&SamplerDescriptor {
@@ -526,10 +507,6 @@ impl framework::ApplicationStructure for Application {
             entries: &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Sampler(&linear_clamp_sampler),
-                },
-                BindGroupEntry {
-                    binding: 1,
                     resource: BindingResource::TextureView(
                         &postprocess_module.temporary_textures[1],
                     ),
@@ -678,7 +655,7 @@ impl framework::ApplicationStructure for Application {
                                 changed = true;
                                 self.state.fog_modifying = false;
                             }
-                            VirtualKeyCode::Add => {
+                            VirtualKeyCode::Plus => {
                                 if self.state.fog_modifying {
                                     self.state.fog_distance += 100.0;
                                 } else {
@@ -687,7 +664,7 @@ impl framework::ApplicationStructure for Application {
                                 }
                                 changed = true;
                             }
-                            VirtualKeyCode::Subtract => {
+                            VirtualKeyCode::Minus => {
                                 if self.state.fog_modifying {
                                     self.state.fog_distance -= 100.0;
                                 } else {
@@ -903,6 +880,7 @@ impl framework::ApplicationStructure for Application {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[
                     RenderPassColorAttachmentDescriptor {
                         attachment: &self.output_texture,
@@ -1109,11 +1087,12 @@ impl framework::ApplicationStructure for Application {
             &self.instance_texture,
             time,
         );
-        queue.submit(Some(encoder.finish()));
-
+        queue.submit(Some(encoder.finish()));        
+        
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: None,
                 color_attachments: &[RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
                     resolve_target: None,
@@ -1126,6 +1105,8 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
+            let resolution: [f32; 2] = [self.width as f32, self.height as f32];
+            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&resolution));
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }
