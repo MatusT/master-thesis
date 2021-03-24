@@ -74,7 +74,9 @@ pub struct Application {
 
 impl framework::ApplicationStructure for Application {
     fn required_features() -> wgpu::Features {
-        wgpu::Features::PUSH_CONSTANTS
+        Features::PUSH_CONSTANTS
+            | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+            | Features::TIMESTAMP_QUERY
     }
 
     fn required_limits() -> wgpu::Limits {
@@ -143,7 +145,7 @@ impl framework::ApplicationStructure for Application {
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
+                        has_dynamic_offset: true,
                         min_binding_size: None,
                     },
                     count: None,
@@ -447,7 +449,6 @@ impl framework::ApplicationStructure for Application {
                 })
                 .create_view(&TextureViewDescriptor::default()),
         ];
-
         let postprocess_module = PostProcessModule::new(device, width, height);
 
         let output_vs = device.create_shader_module(&include_spirv!("passthrough.vert.spv"));
@@ -455,28 +456,17 @@ impl framework::ApplicationStructure for Application {
 
         let output_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::Sampler {
-                            comparison: false,
-                            filtering: true,
-                        },
-                        count: None,
+                label: Some("Output"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadOnly,
+                        format: TextureFormat::Rgba32Float,
+                        view_dimension: TextureViewDimension::D2,
                     },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::Texture {
-                            view_dimension: TextureViewDimension::D2,
-                            sample_type: TextureSampleType::Float { filterable: true },
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
+                    count: None,
+                }],
             });
 
         let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -484,12 +474,12 @@ impl framework::ApplicationStructure for Application {
             bind_group_layouts: &[&output_bind_group_layout],
             push_constant_ranges: &[PushConstantRange {
                 stages: ShaderStage::FRAGMENT,
-                range: 0..24,
+                range: 0..16,
             }],
         });
 
         let output_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: None,
+            label: Some("Main output"),
             layout: Some(&output_pipeline_layout),
             vertex: VertexState {
                 module: &output_vs,
@@ -531,23 +521,15 @@ impl framework::ApplicationStructure for Application {
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("Output bind group"),
             layout: &output_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Sampler(&linear_clamp_sampler),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(
-                        &postprocess_module.temporary_textures[1],
-                    ),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&postprocess_module.temporary_textures[1]),
+            }],
         });
 
         let state = ApplicationState {
-            draw_lod: true,
-            draw_occluded: false,
+            draw_lod: false,
+            draw_occluded: true,
             animating: false,
             animating_reveal: structures[0].borrow().bounding_radius(),
 
@@ -1145,6 +1127,8 @@ impl framework::ApplicationStructure for Application {
             });
 
             rpass.set_pipeline(&self.output_pipeline);
+            let resolution: [f32; 2] = [self.width as f32, self.height as f32];
+            rpass.set_push_constants(ShaderStage::FRAGMENT, 0, cast_slice(&resolution));
             rpass.set_bind_group(0, &self.output_bind_group, &[]);
             rpass.draw(0..3, 0..1);
         }

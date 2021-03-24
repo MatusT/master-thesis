@@ -8,6 +8,7 @@ use master_thesis::ssao;
 use master_thesis::structure::*;
 
 use bytemuck::cast_slice;
+use bytemuck::{Pod, Zeroable};
 use futures::task::LocalSpawn;
 use nalgebra_glm::*;
 use rand::distributions::Distribution;
@@ -70,11 +71,20 @@ pub struct Application {
     output_bind_group: BindGroup,
 
     postprocess_module: PostProcessModule,
+
+    timestamp: QuerySet,
+    timestamp_period: f32,
+    timestamp_buffer: wgpu::Buffer,
+
+    distance_total: f32,
+    distance_step: f32,
 }
 
 impl framework::ApplicationStructure for Application {
     fn required_features() -> wgpu::Features {
-        wgpu::Features::PUSH_CONSTANTS | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+        Features::PUSH_CONSTANTS
+            | Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+            | Features::TIMESTAMP_QUERY
     }
 
     fn required_limits() -> wgpu::Limits {
@@ -211,7 +221,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth_or_array_layers:1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -226,7 +236,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth_or_array_layers:1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -243,14 +253,13 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth_or_array_layers:1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
                 dimension: TextureDimension::D2,
                 format: TextureFormat::Rgba32Float,
-                usage: TextureUsage::RENDER_ATTACHMENT
-                    | TextureUsage::STORAGE,
+                usage: TextureUsage::RENDER_ATTACHMENT | TextureUsage::STORAGE,
             })
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -260,7 +269,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth_or_array_layers:1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -278,7 +287,7 @@ impl framework::ApplicationStructure for Application {
                 size: Extent3d {
                     width,
                     height,
-                    depth_or_array_layers:1,
+                    depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
                 sample_count,
@@ -295,21 +304,28 @@ impl framework::ApplicationStructure for Application {
             &camera_bind_group_layout,
             &per_molecule_bind_group_layout,
         ));
-        let structures_pvs = structures
+        let mut structures_pvs: Vec<StructurePvsField> = structures
             .iter()
             .map(|structure| {
                 pvs_module.pvs_field(
                     &device,
                     &camera_bind_group_layout,
                     structure.clone(),
-                    15,
-                    256,
+                    24,
+                    32,
                 )
             })
             .collect();
 
-        let n = 10;
+        for i in 0..structures_pvs.len() {
+            futures::executor::block_on(structures_pvs[i].compute_all(device, queue));
+        }
+
+        let n = 11;
         let n3 = n * n * n;
+
+        let mut distance_step = 0.0f32;
+        let mut distance_total = 0.0f32;
 
         let mut structures_transforms: Vec<(usize, Mat4, Mat4)> = Vec::new();
         let structure_rand = rand_distr::Uniform::from(0..structures.len());
@@ -323,14 +339,18 @@ impl framework::ApplicationStructure for Application {
 
             let radius = structures[structure_id].borrow_mut().bounding_radius();
             let position = vec3(
-                x * radius * 2.0 * n as f32,
-                y * radius * 2.0 * n as f32,
-                z * radius * 2.0 * n as f32,
+                x * radius * 2.25 * n as f32,
+                y * radius * 2.25 * n as f32,
+                z * radius * 2.25 * n as f32,
             );
             let translation = translation(&position);
 
+            distance_total = distance_total.max(position.magnitude() * 1.95 + radius);
+
             structures_transforms.push((structure_id, translation, rotation));
         }
+
+        distance_step = distance_total / 10.0;
 
         let mut indices_to_delete = Vec::new();
         for i in 0..structures_transforms.len() {
@@ -400,7 +420,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth_or_array_layers:1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -417,7 +437,7 @@ impl framework::ApplicationStructure for Application {
                     size: Extent3d {
                         width,
                         height,
-                        depth_or_array_layers:1,
+                        depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
                     sample_count: 1,
@@ -438,18 +458,16 @@ impl framework::ApplicationStructure for Application {
         let output_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Output"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStage::all(),
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::ReadOnly,
-                            format: TextureFormat::Rgba32Float,
-                            view_dimension: TextureViewDimension::D2,
-                        },
-                        count: None,
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::all(),
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadOnly,
+                        format: TextureFormat::Rgba32Float,
+                        view_dimension: TextureViewDimension::D2,
                     },
-                ],
+                    count: None,
+                }],
             });
 
         let output_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -504,14 +522,10 @@ impl framework::ApplicationStructure for Application {
         let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("Output bind group"),
             layout: &output_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(
-                        &postprocess_module.temporary_textures[1],
-                    ),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&postprocess_module.temporary_textures[1]),
+            }],
         });
 
         let state = ApplicationState {
@@ -550,10 +564,26 @@ impl framework::ApplicationStructure for Application {
             ssao_parameter: 0,
 
             fog_modifying: false,
-            fog_distance: 24000.0,
+            fog_distance: 100000.0,
 
             render_mode: 0,
         };
+
+        let timestamp = device.create_query_set(&wgpu::QuerySetDescriptor {
+            count: 2,
+            ty: QueryType::Timestamp,
+        });
+
+        let timestamp_period = queue.get_timestamp_period();
+
+        let timestamp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Timestamp query buffer"),
+            size: 2 as wgpu::BufferAddress * std::mem::size_of::<u64>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        camera.distance = distance_step;
 
         let start_time = Instant::now();
 
@@ -590,6 +620,13 @@ impl framework::ApplicationStructure for Application {
             output_bind_group,
 
             postprocess_module,
+
+            timestamp,
+            timestamp_period,
+            timestamp_buffer,
+
+            distance_step,
+            distance_total,
         }
     }
 
@@ -705,6 +742,9 @@ impl framework::ApplicationStructure for Application {
                                 );
                                 self.postprocess_module.options.dof += addsub;
                                 println!("Dof: {}", self.postprocess_module.options.dof);
+                            }
+                            VirtualKeyCode::X => {
+                                self.camera.distance += self.distance_step;
                             }
                             VirtualKeyCode::Space => {}
                             _ => {}
@@ -917,6 +957,7 @@ impl framework::ApplicationStructure for Application {
                 }),
             });
 
+            rpass.write_timestamp(&self.timestamp, 0);
             rpass.set_pipeline(&self.billboards_pipeline.pipeline);
             rpass.set_push_constants(ShaderStage::VERTEX, 0, cast_slice(&[time]));
             rpass.set_bind_group(0, &self.camera.bind_group(), &[]);
@@ -1044,8 +1085,36 @@ impl framework::ApplicationStructure for Application {
                     rpass.draw(start..end, 0..structure.transforms()[molecule_id].1 as u32);
                 }
             }
+
+            rpass.write_timestamp(&self.timestamp, 1);
         }
+        encoder.resolve_query_set(&self.timestamp, 0..2, &self.timestamp_buffer, 0);
         queue.submit(Some(encoder.finish()));
+
+        {
+            let _ = self
+                .timestamp_buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read);
+            // Wait for device to be done rendering molecules
+            device.poll(wgpu::Maintain::Wait);
+            // This is guaranteed to be ready.
+            let view = self.timestamp_buffer.slice(..).get_mapped_range();
+            // Convert the raw data into a useful structure
+            let data: &[u64; 2] = bytemuck::from_bytes(&*view);
+            // Iterate over the data
+            let start = data[0];
+            let end = data[1];
+            {
+                // Figure out the timestamp differences and multiply by the period to get nanoseconds
+                let nanoseconds = (end - start) as f32 * self.timestamp_period;
+                // Nanoseconds is a bit small, so lets use microseconds.
+                let microseconds = nanoseconds / 1000.0 / 1000.0;
+                // Print the data!
+                println!("Rendering took: {} ms", microseconds,);
+            }
+        }
+        self.timestamp_buffer.unmap();
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         self.ssao_module.compute(
@@ -1087,8 +1156,8 @@ impl framework::ApplicationStructure for Application {
             &self.instance_texture,
             time,
         );
-        queue.submit(Some(encoder.finish()));        
-        
+        queue.submit(Some(encoder.finish()));
+
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {

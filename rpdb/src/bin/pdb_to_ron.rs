@@ -54,18 +54,19 @@ fn main() {
         let mut file_lines = file_reader.lines();
 
         let mut scale = 1.0f32;
-        if let Some(line) = file_lines.next() {
-            if let Ok(line) = line {
-                scale = 1.0f32 / line.parse::<f32>().unwrap();
-            }
-        }
+        // if let Some(line) = file_lines.next() {
+        //     if let Ok(line) = line {
+        //         scale = 1.0f32 / line.parse::<f32>().unwrap();
+        //     }
+        // }
 
         let mut molecules: HashMap<String, Vec<Mat4>> = HashMap::new();
         for line in file_lines {
             if let Ok(line) = line {
                 let parts: Vec<&str> = line.split(' ').collect();
 
-                if parts.len() == 9 {
+                // println!("{:?}", parts.len());
+                if parts.len() >= 8 {
                     let molecule_name = parts[0];
 
                     let molecule_position = vec3(
@@ -74,10 +75,10 @@ fn main() {
                         parts[3].parse::<f32>().unwrap(),
                     );
                     let molecule_quaternion = quat(
-                        -parts[7].parse::<f32>().unwrap(),
-                        parts[4].parse::<f32>().unwrap(),
                         parts[5].parse::<f32>().unwrap(),
-                        -parts[6].parse::<f32>().unwrap(),
+                        parts[6].parse::<f32>().unwrap(),
+                        parts[7].parse::<f32>().unwrap(),
+                        parts[4].parse::<f32>().unwrap(),
                     );
 
                     let translation = translation(&(scale * molecule_position));
