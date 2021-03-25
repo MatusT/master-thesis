@@ -70,6 +70,9 @@ pub struct Application {
     output_bind_group: BindGroup,
 
     postprocess_module: PostProcessModule,
+
+    show_molecules: Vec<bool>,
+    current_molecule: usize,
 }
 
 impl framework::ApplicationStructure for Application {
@@ -179,6 +182,7 @@ impl framework::ApplicationStructure for Application {
                 .expect("Unable to load colors.");
 
         for molecule in structure.borrow_mut().molecules_mut() {
+            println!("Name: {}", molecule.name());
             if let Some(color) = colors.get_mut(molecule.name()) {
                 for channel in color.iter_mut() {
                     if *channel > 1.0 {
@@ -503,6 +507,9 @@ impl framework::ApplicationStructure for Application {
 
         let start_time = Instant::now();
 
+        let mut show_molecules = Vec::new();
+        show_molecules.resize(structure.borrow().molecules().len(), true);
+
         Self {
             width,
             height,
@@ -536,6 +543,9 @@ impl framework::ApplicationStructure for Application {
             output_bind_group,
 
             postprocess_module,
+
+            show_molecules,
+            current_molecule: 0,
         }
     }
 
@@ -632,9 +642,6 @@ impl framework::ApplicationStructure for Application {
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
                             }
-                            VirtualKeyCode::S => {
-                                self.state.render_mode = (self.state.render_mode + 1) % 3;
-                            }
                             // Set focus
                             VirtualKeyCode::N => {
                                 let addsub = 10.0f32.powf(
@@ -650,7 +657,27 @@ impl framework::ApplicationStructure for Application {
                                 self.postprocess_module.options.dof += addsub;
                                 println!("Dof: {}", self.postprocess_module.options.dof);
                             }
-                            VirtualKeyCode::Space => {}
+                            VirtualKeyCode::Left => {
+                                self.current_molecule = self.current_molecule - 1;
+                                println!("{} {}", self.structure.borrow().molecules()[self.current_molecule].name(), self.show_molecules[self.current_molecule]);
+                            }
+                            VirtualKeyCode::Right => {
+                                self.current_molecule = (self.current_molecule + 1) % self.show_molecules.len();
+                                println!("{} {}", self.structure.borrow().molecules()[self.current_molecule].name(), self.show_molecules[self.current_molecule]);
+                            }
+                            VirtualKeyCode::S => {
+                                let structure = self.structure.borrow();
+                                let molecules = structure.molecules();
+
+                                println!("======================================================================");
+                                for (i, molecule) in molecules.iter().enumerate() {
+                                    println!("{} {}", molecule.name(), self.show_molecules[i]);
+                                }                             
+                                println!("======================================================================");
+                            }
+                            VirtualKeyCode::Space => {
+                                self.show_molecules[self.current_molecule] = !self.show_molecules[self.current_molecule];
+                            }
                             _ => {}
                         };
                     }
@@ -827,7 +854,7 @@ impl framework::ApplicationStructure for Application {
                 }
             }
 
-            println!("Total molecules: {}/{} = {}%", visible_molecules, total_molecules, (visible_molecules as f32 / total_molecules as f32) * 100.0);
+            // println!("Total molecules: {}/{} = {}%", visible_molecules, total_molecules, (visible_molecules as f32 / total_molecules as f32) * 100.0);
         }
 
         //================== RENDER MOLECULES
@@ -911,6 +938,10 @@ impl framework::ApplicationStructure for Application {
 
             // For each molecule type
             for molecule_id in 0..structure.molecules().len() {
+                if !self.show_molecules[molecule_id] {
+                    continue;
+                }
+
                 // Bind its data
                 rpass.set_bind_group(1, &self.structure_bgs[molecule_id], &[]);
 
