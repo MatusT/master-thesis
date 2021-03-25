@@ -61,6 +61,12 @@ fn main() {
         // }
 
         let mut molecules: HashMap<String, Vec<Mat4>> = HashMap::new();
+        let mut min_position = vec3(std::f32::INFINITY, std::f32::INFINITY, std::f32::INFINITY);
+        let mut max_position = vec3(
+            std::f32::NEG_INFINITY,
+            std::f32::NEG_INFINITY,
+            std::f32::NEG_INFINITY,
+        );
         for line in file_lines {
             if let Ok(line) = line {
                 let parts: Vec<&str> = line.split(' ').collect();
@@ -81,13 +87,16 @@ fn main() {
                         parts[4].parse::<f32>().unwrap(),
                     );
 
+                    min_position = min2(&min_position, &molecule_position);
+                    max_position = max2(&max_position, &molecule_position);
+
                     let translation = translation(&(scale * molecule_position));
                     let rotation = quat_to_mat4(&molecule_quaternion);
                     let model_matrix = translation * rotation;
 
                     if !molecules.contains_key(molecule_name) {
                         println!("Converting molecule: {}", molecule_name);
-                        
+
                         // Load existing molecule
                         let mut molecule = molecule::Molecule::from_pdb(
                             in_file_path.with_file_name(molecule_name.to_lowercase() + ".pdb"),
@@ -108,6 +117,14 @@ fn main() {
                         v.push(model_matrix);
                     }
                 }
+            }
+        }
+
+        // Center the molecules (+their bounding box)
+        let bb_center: Vec3 = (max_position + min_position) * 0.5;
+        for (_, model_matrices) in molecules.iter_mut() {
+            for model_matrix in model_matrices.iter_mut() {
+                *model_matrix = translation(&vec3(-bb_center.x, -bb_center.y, -bb_center.z)) * (*model_matrix);
             }
         }
 

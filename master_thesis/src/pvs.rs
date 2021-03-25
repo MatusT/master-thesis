@@ -290,7 +290,7 @@ impl StructurePvsField {
             // Draw the depth buffer
             {
                 let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: None,
+                    label: Some("PVS computation: first depth pass"),
                     color_attachments: &[],
                     depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                         attachment: &self.module.depth,
@@ -321,7 +321,7 @@ impl StructurePvsField {
             // Draw a second time without writing to a depth buffer but writing visibility
             {
                 let mut rpass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: None,
+                    label: Some("PVS computation: second depth pass"),
                     color_attachments: &[],
                     depth_stencil_attachment: Some(RenderPassDepthStencilAttachmentDescriptor {
                         attachment: &self.module.depth,
