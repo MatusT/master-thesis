@@ -48,6 +48,7 @@ pub struct Application {
     output_texture: TextureView,
 
     camera: RotationCamera,
+    camera_bind_group_layout: BindGroupLayout,
 
     billboards_pipeline: SphereBillboardsPipeline,
 
@@ -73,6 +74,8 @@ pub struct Application {
 
     show_molecules: Vec<bool>,
     current_molecule: usize,
+
+    reduce: usize,
 }
 
 impl framework::ApplicationStructure for Application {
@@ -97,6 +100,8 @@ impl framework::ApplicationStructure for Application {
         let width = sc_desc.width;
         let height = sc_desc.height;
         let sample_count = 1;
+
+        let reduce = 1024;
 
         // Shared bind group layouts
         let camera_bind_group_layout =
@@ -312,13 +317,14 @@ impl framework::ApplicationStructure for Application {
             &per_molecule_bind_group_layout,
         ));
 
-        let structure_pvs = pvs_module.pvs_field(
+        let mut structure_pvs = pvs_module.pvs_field(
             &device,
             &camera_bind_group_layout,
             structure.clone(),
-            5,
-            32,
+            24,
+            reduce,
         );
+        futures::executor::block_on(structure_pvs.compute_all(&device, &queue));
 
         let mut structure_transforms: (usize, Mat4, Mat4) = (0, Mat4::identity(), Mat4::identity());
 
@@ -524,6 +530,7 @@ impl framework::ApplicationStructure for Application {
             output_texture,
 
             camera,
+            camera_bind_group_layout,
 
             billboards_pipeline,
 
@@ -546,6 +553,8 @@ impl framework::ApplicationStructure for Application {
 
             show_molecules,
             current_molecule: 0,
+
+            reduce,
         }
     }
 
@@ -571,99 +580,110 @@ impl framework::ApplicationStructure for Application {
                 if input.state == ElementState::Pressed {
                     if let Some(keycode) = input.virtual_keycode {
                         match keycode {
-                            VirtualKeyCode::L => {
-                                self.state.draw_lod = !self.state.draw_lod;
-                            }
-                            VirtualKeyCode::O => {
-                                self.state.draw_occluded = !self.state.draw_occluded;
-                            }
-                            VirtualKeyCode::C => {
-                                let mut colors: std::collections::HashMap<String, Vec<f32>> =
-                                    ron::de::from_str(
-                                        &std::fs::read_to_string("colors.ron").unwrap(),
-                                    )
-                                    .expect("Unable to load colors.");
+                            // VirtualKeyCode::L => {
+                            //     self.state.draw_lod = !self.state.draw_lod;
+                            // }
+                            // VirtualKeyCode::O => {
+                            //     self.state.draw_occluded = !self.state.draw_occluded;
+                            // }
+                            // VirtualKeyCode::C => {
+                            //     let mut colors: std::collections::HashMap<String, Vec<f32>> =
+                            //         ron::de::from_str(
+                            //             &std::fs::read_to_string("colors.ron").unwrap(),
+                            //         )
+                            //         .expect("Unable to load colors.");
 
-                                for molecule in self.structure.borrow_mut().molecules_mut() {
-                                    if let Some(color) = colors.get_mut(molecule.name()) {
-                                        for channel in color.iter_mut() {
-                                            if *channel > 1.0 {
-                                                *channel = *channel / 255.0;
-                                            }
-                                        }
-                                        molecule.set_color(&vec3(color[0], color[1], color[2]));
-                                    }
-                                }
-                            }
-                            VirtualKeyCode::F => {
-                                self.state.fog_modifying = !self.state.fog_modifying;
-                                changed = true;
-                            }
-                            VirtualKeyCode::Key1 => {
-                                self.state.ssao_modifying = 0;
-                                changed = true;
-                                self.state.fog_modifying = false;
-                            }
-                            VirtualKeyCode::Key2 => {
-                                self.state.ssao_modifying = 1;
-                                changed = true;
-                                self.state.fog_modifying = false;
-                            }
-                            VirtualKeyCode::Plus => {
-                                if self.state.fog_modifying {
-                                    self.state.fog_distance += 100.0;
-                                } else {
-                                    self.state.ssao_settings[self.state.ssao_modifying]
-                                        .add(self.state.ssao_parameter);
-                                }
-                                changed = true;
-                            }
-                            VirtualKeyCode::Minus => {
-                                if self.state.fog_modifying {
-                                    self.state.fog_distance -= 100.0;
-                                } else {
-                                    self.state.ssao_settings[self.state.ssao_modifying]
-                                        .sub(self.state.ssao_parameter);
-                                }
-                                changed = true;
-                            }
-                            VirtualKeyCode::Up => {
-                                self.state.ssao_parameter -=
-                                    if self.state.ssao_parameter == 0 { 0 } else { 1 };
-                                changed = true;
-                                self.state.fog_modifying = false;
-                            }
-                            VirtualKeyCode::Down => {
-                                self.state.ssao_parameter +=
-                                    if self.state.ssao_parameter == 6 { 0 } else { 1 };
-                                changed = true;
-                                self.state.fog_modifying = false;
-                            }
+                            //     for molecule in self.structure.borrow_mut().molecules_mut() {
+                            //         if let Some(color) = colors.get_mut(molecule.name()) {
+                            //             for channel in color.iter_mut() {
+                            //                 if *channel > 1.0 {
+                            //                     *channel = *channel / 255.0;
+                            //                 }
+                            //             }
+                            //             molecule.set_color(&vec3(color[0], color[1], color[2]));
+                            //         }
+                            //     }
+                            // }
+                            // VirtualKeyCode::F => {
+                            //     self.state.fog_modifying = !self.state.fog_modifying;
+                            //     changed = true;
+                            // }
+                            // VirtualKeyCode::Key1 => {
+                            //     self.state.ssao_modifying = 0;
+                            //     changed = true;
+                            //     self.state.fog_modifying = false;
+                            // }
+                            // VirtualKeyCode::Key2 => {
+                            //     self.state.ssao_modifying = 1;
+                            //     changed = true;
+                            //     self.state.fog_modifying = false;
+                            // }
+                            // VirtualKeyCode::Plus => {
+                            //     if self.state.fog_modifying {
+                            //         self.state.fog_distance += 100.0;
+                            //     } else {
+                            //         self.state.ssao_settings[self.state.ssao_modifying]
+                            //             .add(self.state.ssao_parameter);
+                            //     }
+                            //     changed = true;
+                            // }
+                            // VirtualKeyCode::Minus => {
+                            //     if self.state.fog_modifying {
+                            //         self.state.fog_distance -= 100.0;
+                            //     } else {
+                            //         self.state.ssao_settings[self.state.ssao_modifying]
+                            //             .sub(self.state.ssao_parameter);
+                            //     }
+                            //     changed = true;
+                            // }
+                            // VirtualKeyCode::Up => {
+                            //     self.state.ssao_parameter -=
+                            //         if self.state.ssao_parameter == 0 { 0 } else { 1 };
+                            //     changed = true;
+                            //     self.state.fog_modifying = false;
+                            // }
+                            // VirtualKeyCode::Down => {
+                            //     self.state.ssao_parameter +=
+                            //         if self.state.ssao_parameter == 6 { 0 } else { 1 };
+                            //     changed = true;
+                            //     self.state.fog_modifying = false;
+                            // }
                             VirtualKeyCode::A => {
                                 self.state.animating = !self.state.animating;
                             }
-                            // Set focus
-                            VirtualKeyCode::N => {
-                                let addsub = 10.0f32.powf(
-                                    -self.postprocess_module.options.focus.log10().abs().ceil(),
-                                );
-                                self.postprocess_module.options.focus += addsub;
-                                println!("Focus: {}", self.postprocess_module.options.focus);
-                            }
-                            VirtualKeyCode::M => {
-                                let addsub = 10.0f32.powf(
-                                    -self.postprocess_module.options.dof.log10().abs().ceil(),
-                                );
-                                self.postprocess_module.options.dof += addsub;
-                                println!("Dof: {}", self.postprocess_module.options.dof);
-                            }
+                            // // Set focus
+                            // VirtualKeyCode::N => {
+                            //     let addsub = 10.0f32.powf(
+                            //         -self.postprocess_module.options.focus.log10().abs().ceil(),
+                            //     );
+                            //     self.postprocess_module.options.focus += addsub;
+                            //     println!("Focus: {}", self.postprocess_module.options.focus);
+                            // }
+                            // VirtualKeyCode::M => {
+                            //     let addsub = 10.0f32.powf(
+                            //         -self.postprocess_module.options.dof.log10().abs().ceil(),
+                            //     );
+                            //     self.postprocess_module.options.dof += addsub;
+                            //     println!("Dof: {}", self.postprocess_module.options.dof);
+                            // }
                             VirtualKeyCode::Left => {
                                 self.current_molecule = self.current_molecule - 1;
-                                println!("{} {}", self.structure.borrow().molecules()[self.current_molecule].name(), self.show_molecules[self.current_molecule]);
+                                println!(
+                                    "{} {}",
+                                    self.structure.borrow().molecules()[self.current_molecule]
+                                        .name(),
+                                    self.show_molecules[self.current_molecule]
+                                );
                             }
                             VirtualKeyCode::Right => {
-                                self.current_molecule = (self.current_molecule + 1) % self.show_molecules.len();
-                                println!("{} {}", self.structure.borrow().molecules()[self.current_molecule].name(), self.show_molecules[self.current_molecule]);
+                                self.current_molecule =
+                                    (self.current_molecule + 1) % self.show_molecules.len();
+                                println!(
+                                    "{} {}",
+                                    self.structure.borrow().molecules()[self.current_molecule]
+                                        .name(),
+                                    self.show_molecules[self.current_molecule]
+                                );
                             }
                             VirtualKeyCode::S => {
                                 let structure = self.structure.borrow();
@@ -672,11 +692,44 @@ impl framework::ApplicationStructure for Application {
                                 println!("======================================================================");
                                 for (i, molecule) in molecules.iter().enumerate() {
                                     println!("{} {}", molecule.name(), self.show_molecules[i]);
-                                }                             
+                                }
                                 println!("======================================================================");
                             }
                             VirtualKeyCode::Space => {
-                                self.show_molecules[self.current_molecule] = !self.show_molecules[self.current_molecule];
+                                self.show_molecules[self.current_molecule] =
+                                    !self.show_molecules[self.current_molecule];
+                            }
+                            VirtualKeyCode::Q => {
+                                // Calculate molecules
+                                let structure = self.structure.borrow();
+                                let structure_pvs = &self.structure_pvs;
+
+                                let mut total_molecules: u32 = 0;
+                                let mut visible_molecules: u32 = 0;
+
+                                println!("Reduce: {}", self.reduce);
+                                for i in 0..structure_pvs.sets.len() {
+                                    for molecule_id in 0..structure.molecules().len() {
+                                        total_molecules +=
+                                            structure.transforms()[molecule_id].1 as u32;
+
+                                        let view = structure_pvs.get(i).unwrap();
+
+                                        for range in view.visible[molecule_id].iter() {
+                                            visible_molecules += range.1 - range.0;
+                                        }
+                                    }
+
+                                    println!(
+                                        "Total molecules: {}/{} = {}%",
+                                        visible_molecules,
+                                        total_molecules,
+                                        (visible_molecules as f32 / total_molecules as f32) * 100.0
+                                    );
+                                }
+                            }
+                            VirtualKeyCode::R => {
+                                self.reduce /= 2;
                             }
                             _ => {}
                         };
@@ -782,10 +835,10 @@ impl framework::ApplicationStructure for Application {
         let time = Instant::now().duration_since(self.start_time);
         let time = time.as_secs_f32() + time.subsec_millis() as f32;
 
-        // Rotate the structure
-        // for r in self.structure_transforms {
-        //     r.2 = rotation(0.2f32.to_radians(), &vec3(0.0, 1.0, 0.0)) * (r.2);
-        // }
+        if self.reduce != self.structure_pvs.ranges_limit() {            
+            self.structure_pvs = self.pvs_module.pvs_field(device, &self.camera_bind_group_layout, self.structure.clone(), 24, self.reduce);
+            futures::executor::block_on(self.structure_pvs.compute_all(device, queue));
+        }
 
         // //================== DATA UPLOAD
         if self.state.animating {
@@ -835,27 +888,6 @@ impl framework::ApplicationStructure for Application {
             queue,
             -vec3(direction.x as f64, direction.y as f64, direction.z as f64),
         )) {}
-
-        // Calculate molecules
-        {
-            let structure_id = 0;
-            let structure = self.structure.borrow();
-            let structure_pvs = &self.structure_pvs;
-
-            let mut total_molecules: u32 = 0;
-            let mut visible_molecules: u32 = 0;
-            for molecule_id in 0..structure.molecules().len() {
-                total_molecules += structure.transforms()[molecule_id].1 as u32;
-                
-                let view = structure_pvs.get_from_eye(vec3(direction.x, direction.y, direction.z)).unwrap();
-
-                for range in view.visible[molecule_id].iter() {
-                    visible_molecules += range.1 - range.0;
-                }
-            }
-
-            // println!("Total molecules: {}/{} = {}%", visible_molecules, total_molecules, (visible_molecules as f32 / total_molecules as f32) * 100.0);
-        }
 
         //================== RENDER MOLECULES
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
@@ -976,7 +1008,7 @@ impl framework::ApplicationStructure for Application {
 
                 // IF !draw_occluded && PVS is available -> iterate only over visible parts
                 if !draw_occluded {
-                    if let Some(pvs) = structure_pvs.get_from_eye(direction_norm_rot) {
+                    if let Some(pvs) = structure_pvs.get_from_eye(-direction_norm_rot) {
                         for range in pvs.visible[molecule_id].iter() {
                             rpass.draw(start..end, range.0..range.1);
                         }

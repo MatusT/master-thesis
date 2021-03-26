@@ -71,9 +71,21 @@ fn main() {
             if let Ok(line) = line {
                 let parts: Vec<&str> = line.split(' ').collect();
 
-                // println!("{:?}", parts.len());
                 if parts.len() >= 8 {
                     let molecule_name = parts[0];
+
+                    if molecule_name == "hiv1_sp1_hack_0_1_0"
+                    || molecule_name == "1esx"
+                    || molecule_name == "nefstef_1"
+                    || molecule_name == "1ak4a"
+                    || molecule_name == "modbase_vif"
+                    || molecule_name == "hiv1_p6_vpr"
+                    || molecule_name == "hiv1_sp2_hack_0_1_0"
+                    || molecule_name == "hiv1_p6_swissmod_0_1_0"
+                    || molecule_name == "1ak4fitto1vu4hex_manu"
+                    || molecule_name == "7hvp" {
+                        continue;
+                    }
 
                     let molecule_position = vec3(
                         parts[1].parse::<f32>().unwrap(),
@@ -87,8 +99,10 @@ fn main() {
                         parts[4].parse::<f32>().unwrap(),
                     );
 
-                    min_position = min2(&min_position, &molecule_position);
-                    max_position = max2(&max_position, &molecule_position);
+                    if molecule_name == "3j3q_1vu4_a_biomt" {
+                        min_position = min2(&min_position, &molecule_position);
+                        max_position = max2(&max_position, &molecule_position);
+                    }
 
                     let translation = translation(&(scale * molecule_position));
                     let rotation = quat_to_mat4(&molecule_quaternion);
@@ -121,11 +135,19 @@ fn main() {
         }
 
         // Center the molecules (+their bounding box)
-        let bb_center: Vec3 = (max_position + min_position) * 0.5;
+        // let bb_center: Vec3 = (max_position + min_position) * 0.5;
+        // for (_, model_matrices) in molecules.iter_mut() {
+        //     for model_matrix in model_matrices.iter_mut() {
+        //         *model_matrix = translation(&vec3(-bb_center.x, -bb_center.y, -bb_center.z)) * (*model_matrix);
+        //     }
+        // }
+
         for (_, model_matrices) in molecules.iter_mut() {
-            for model_matrix in model_matrices.iter_mut() {
-                *model_matrix = translation(&vec3(-bb_center.x, -bb_center.y, -bb_center.z)) * (*model_matrix);
-            }
+            model_matrices.retain(|&m| {
+                let translation = m.column(3).xyz();
+
+                translation < max_position && translation > min_position
+            });
         }
 
         let structure = structure::Structure { molecules };
