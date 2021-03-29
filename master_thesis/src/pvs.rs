@@ -309,17 +309,17 @@ impl StructurePvsField {
                 for molecule_id in 0..structure.molecules().len() {
                     rpass.set_bind_group(1, &structure.bind_groups()[molecule_id], &[]);
 
-                    rpass.draw(
-                        structure.molecules()[molecule_id].lods().last().unwrap().1.start
-                            ..structure.molecules()[molecule_id].lods().last().unwrap().1.end,
-                        0..structure.transforms()[molecule_id].1 as u32,
-                    );
-
                     // rpass.draw(
-                    //     structure.molecules()[molecule_id].lods()[0].1.start
-                    //         ..structure.molecules()[molecule_id].lods()[0].1.end,
+                    //     structure.molecules()[molecule_id].lods().last().unwrap().1.start
+                    //         ..structure.molecules()[molecule_id].lods().last().unwrap().1.end,
                     //     0..structure.transforms()[molecule_id].1 as u32,
                     // );
+
+                    rpass.draw(
+                        structure.molecules()[molecule_id].lods()[0].1.start
+                            ..structure.molecules()[molecule_id].lods()[0].1.end,
+                        0..structure.transforms()[molecule_id].1 as u32,
+                    );
                 }
                 rpass.pop_debug_group();
             }
